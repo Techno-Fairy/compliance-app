@@ -1,0 +1,48 @@
+{
+  "name": "mobile",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^5.2.2",
+    "@react-native-async-storage/async-storage": "^3.0.2",
+    "@tanstack/react-query": "^5.100.9",
+    "axios": "^1.16.0",
+    "date-fns": "^4.1.0",
+    "expo": "~54.0.33",
+    "expo-camera": "^55.0.18",
+    "expo-document-picker": "^55.0.13",
+    "expo-file-system": "^55.0.19",
+    "expo-image-picker": "^55.0.20",
+    "expo-notifications": "^55.0.22",
+    "expo-router": "^55.0.14",
+    "expo-secure-store": "^55.0.13",
+    "expo-sharing": "^55.0.18",
+    "expo-sqlite": "^55.0.15",
+    "expo-status-bar": "~3.0.9",
+    "react": "19.1.0",
+    "react-hook-form": "^7.75.0",
+    "react-native": "0.81.5",
+    "react-native-gesture-handler": "^2.31.2",
+    "react-native-reanimated": "^4.3.0",
+    "react-native-safe-area-context": "^5.7.0",
+    "react-native-screens": "^4.24.0",
+    "react-native-svg": "^15.15.4",
+    "victory-native": "^41.20.2",
+    "zod": "^4.4.3",
+    "zustand": "^5.0.13"
+  },
+  "devDependencies": {
+    "@testing-library/react-native": "^13.3.3",
+    "@types/react": "~19.1.0",
+    "jest": "^30.3.0",
+    "jest-expo": "^55.0.17",
+    "typescript": "~5.9.2"
+  },
+  "private": true
+}
