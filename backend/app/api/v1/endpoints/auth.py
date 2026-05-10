@@ -10,7 +10,12 @@ from app.core.security import (
 )
 from app.db.database import get_db
 from app.models.user import User
-from app.schemas.auth import LoginRequest, RefreshRequest, RegisterRequest, TokenResponse
+from app.schemas.auth import (
+    LoginRequest,
+    RefreshRequest,
+    RegisterRequest,
+    TokenResponse,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -23,12 +28,18 @@ def _tokens(user: User) -> TokenResponse:
     )
 
 
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED
+)
 def register(body: RegisterRequest, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(
             status_code=422,
-            detail={"code": "VALIDATION_ERROR", "message": "Email already registered.", "field": "email"},
+            detail={
+                "code": "VALIDATION_ERROR",
+                "message": "Email already registered.",
+                "field": "email",
+            },
         )
     user = User(
         full_name=body.full_name,
@@ -72,5 +83,4 @@ def refresh_token(body: RefreshRequest):
 
 @router.delete("/session", status_code=status.HTTP_204_NO_CONTENT)
 def logout():
-    # Stateless — client deletes stored tokens
     return
