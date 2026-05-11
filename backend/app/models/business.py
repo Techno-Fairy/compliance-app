@@ -1,83 +1,39 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+import enum
+from datetime import datetime, timezone
 
-from app.core.deps import get_current_user
-from app.db.database import get_db
-from app.models.business import BusinessProfile
-from app.models.user import User
-from app.schemas.business import BusinessProfileCreate, BusinessProfileResponse
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-router = APIRouter(prefix="/business", tags=["business"])
+from app.db.database import Base
 
 
-def _get_or_404(db: Session, owner_id: int) -> BusinessProfile:
-    """Fetch the business profile for a given owner, or raise 404."""
-    profile = (
-        db.query(BusinessProfile)
-        .filter(BusinessProfile.owner_id == owner_id)
-        .first()
+class CompanyType(str, enum.Enum):
+    SOLE_TRADER = "sole_trader"
+    PTY_LTD = "pty_ltd"
+    PARTNERSHIP = "partnership"
+    NGO = "ngo"
+
+
+class BusinessProfile(Base):
+    __tablename__ = "business_profiles"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True)
+    business_name: Mapped[str] = mapped_column(String(255))
+    company_type: Mapped[CompanyType] = mapped_column(Enum(CompanyType))
+    cipa_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    burs_tin: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    vat_registered: Mapped[bool] = mapped_column(Boolean, default=False)
+    vat_filing_monthly: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
     )
-    if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"code": "NOT_FOUND", "message": "Business profile not found."},
-        )
-    return profile
 
-
-@router.post("/profile", response_model=BusinessProfileResponse, status_code=201)
-def create_profile(
-    body: BusinessProfileCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Create a business profile for the authenticated user.
-    A user may only have one profile — returns 409 if one already exists.
-    """
-    existing = (
-        db.query(BusinessProfile)
-        .filter(BusinessProfile.owner_id == current_user.id)
-        .first()
+    owner: Mapped["User"] = relationship(back_populates="business_profile")  # noqa: F821
+    deadlines: Mapped[list["Deadline"]] = relationship(  # noqa: F821
+        back_populates="business", cascade="all, delete-orphan"
     )
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "CONFLICT",
-                "message": "A business profile already exists for this account.",
-            },
-        )
-
-    profile = BusinessProfile(**body.model_dump(), owner_id=current_user.id)
-    db.add(profile)
-    db.commit()
-    db.refresh(profile)
-    return profile
-
-
-@router.get("/profile", response_model=BusinessProfileResponse)
-def get_profile(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Return the authenticated user's business profile."""
-    return _get_or_404(db, owner_id=current_user.id)
-
-
-@router.patch("/profile", response_model=BusinessProfileResponse)
-def update_profile(
-    body: BusinessProfileCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Update the authenticated user's business profile.
-    Only fields present in the request body are updated (partial update).
-    """
-    profile = _get_or_404(db, owner_id=current_user.id)
-    for key, value in body.model_dump(exclude_unset=True).items():
-        setattr(profile, key, value)
-    db.commit()
-    db.refresh(profile)
-    return profile
+    documents: Mapped[list["Document"]] = relationship(  # noqa: F821
+        back_populates="business", cascade="all, delete-orphan"
+    )
