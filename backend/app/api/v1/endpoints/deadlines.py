@@ -28,7 +28,7 @@ def _get_business_or_404(db: Session, owner_id: int) -> BusinessProfile:
                 "code": "NOT_FOUND",
                 "message": (
                     "No business profile found. "
-                    "Complete your profile setup first."
+                    "Please complete your profile setup first."
                 ),
             },
         )
