@@ -4,7 +4,10 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 
 from app.db.database import Base
-import app.models  # noqa: F401 — registers all models with Base.metadata
+from app.models.user import User  # noqa: F401
+from app.models.business import BusinessProfile  # noqa: F401
+from app.models.deadline import Deadline  # noqa: F401
+from app.models.document import Document  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

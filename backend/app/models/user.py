@@ -26,10 +26,8 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     fcm_token: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
-
     business_profile: Mapped["BusinessProfile | None"] = relationship(  # noqa: F821
         back_populates="owner", uselist=False
     )

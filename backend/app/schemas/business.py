@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+
 from app.models.business import CompanyType
 
 
