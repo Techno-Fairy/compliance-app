@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "expo": "~50.0.0",
+    "lucide-react": "^1.16.0",
+    "nativewind": "^4.2.3",
+    "tailwindcss-react-native": "^1.7.10"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.10",
+    "typescript": "~5.9.2"
+  }
+}
