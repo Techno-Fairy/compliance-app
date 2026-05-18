@@ -26,6 +26,7 @@ export interface Deadline {
   penalty_info?: string;
   notes?: string;
   recurrence?: string;
+  days_remaining?: number; // computed by backend: positive = days until due, negative = overdue
 }
 
 export interface Document {
@@ -42,17 +43,17 @@ export interface TokenResponse {
   token_type: string;
 }
 
-// Dashboard & Compliance Types
-export type ComplianceStatus = 'pending' | 'complete' | 'missed' | 'overdue';
-export type ComplianceCategory = 'BURS' | 'CIPA' | 'LABOUR' | 'CUSTOM';
-
-export interface ComplianceTask extends Deadline {
-  priority: 'high' | 'medium' | 'low';
-  description?: string;
+export interface HealthScoreBreakdown {
+  category: string;
+  score: number;
+  total: number;
+  complete: number;
+  overdue: number;
 }
 
-export interface ComplianceHealthScore {
+export interface HealthScore {
   score: number;
-  last_updated: string;
-  trend: 'up' | 'down' | 'stable';
+  band: "green" | "amber" | "red";
+  overdue_count: number;
+  breakdown: HealthScoreBreakdown[];
 }

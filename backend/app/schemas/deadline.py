@@ -1,6 +1,6 @@
 from datetime import date
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from app.models.deadline import DeadlineCategory, DeadlineStatus
 
@@ -27,5 +27,15 @@ class DeadlineResponse(BaseModel):
     penalty_info: str | None
     notes: str | None
     recurrence: str | None
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def days_remaining(self) -> int:
+        """
+        Positive = days until due.
+        Negative = days overdue.
+        Zero     = due today.
+        """
+        return (self.due_date - date.today()).days
 
     model_config = {"from_attributes": True}
