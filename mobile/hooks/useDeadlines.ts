@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { Deadline } from "@/types";
+import type { Deadline } from "@/types/types_index";
 
 export function useDeadlines(category?: string) {
   return useQuery<Deadline[]>({
