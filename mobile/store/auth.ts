@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import * as SecureStore from "expo-secure-store";
 import { api } from "@/lib/api";
-import type { TokenResponse } from "@/types/types_index";
+import type { TokenResponse } from "@/types";
 
 interface AuthState {
   isAuthenticated: boolean;

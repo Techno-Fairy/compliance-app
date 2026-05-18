@@ -16,7 +16,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useDeadlines } from "@/hooks/useDeadlines";
 import { useHealthScore } from "@/hooks/useHealthScore";
 import { useUpdateDeadlineStatus } from "@/hooks/useDeadlines";
-import type { Deadline } from "@/types/types_index";
+import type { Deadline } from "@/types";
 
 // ── Palette ──────────────────────────────────────────────────────────────────
 const C = {
