@@ -41,3 +41,18 @@ export interface TokenResponse {
   refresh_token: string;
   token_type: string;
 }
+
+// Dashboard & Compliance Types
+export type ComplianceStatus = 'pending' | 'complete' | 'missed' | 'overdue';
+export type ComplianceCategory = 'BURS' | 'CIPA' | 'LABOUR' | 'CUSTOM';
+
+export interface ComplianceTask extends Deadline {
+  priority: 'high' | 'medium' | 'low';
+  description?: string;
+}
+
+export interface ComplianceHealthScore {
+  score: number;
+  last_updated: string;
+  trend: 'up' | 'down' | 'stable';
+}
