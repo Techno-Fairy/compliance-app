@@ -26,6 +26,7 @@ export interface Deadline {
   penalty_info?: string;
   notes?: string;
   recurrence?: string;
+  days_remaining?: number; // computed by backend: positive = days until due, negative = overdue
 }
 
 export interface Document {
@@ -40,4 +41,19 @@ export interface TokenResponse {
   access_token: string;
   refresh_token: string;
   token_type: string;
+}
+
+export interface HealthScoreBreakdown {
+  category: string;
+  score: number;
+  total: number;
+  complete: number;
+  overdue: number;
+}
+
+export interface HealthScore {
+  score: number;
+  band: "green" | "amber" | "red";
+  overdue_count: number;
+  breakdown: HealthScoreBreakdown[];
 }

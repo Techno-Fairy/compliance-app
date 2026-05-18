@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import get_settings
+from app.models import business, deadline, document, user  # noqa: F401
 
 settings = get_settings()
 
