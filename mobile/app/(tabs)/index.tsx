@@ -265,8 +265,8 @@ export default function DashboardScreen() {
         <View style={{ height: 32 }} />
       </ScrollView>
 
-      {/* FAB */}
-      <Pressable style={ss.fab}>
+      {/* FAB — opens Add Custom Task (FE-12) */}
+      <Pressable style={ss.fab} onPress={() => router.push("/add-task" as any)}>
         <MaterialIcons name="add" size={26} color="#ffffff" />
       </Pressable>
     </SafeAreaView>

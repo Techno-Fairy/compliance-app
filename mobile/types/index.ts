@@ -26,7 +26,7 @@ export interface Deadline {
   penalty_info?: string;
   notes?: string;
   recurrence?: string;
-  days_remaining?: number; // computed by backend: positive = days until due, negative = overdue
+  days_remaining?: number;
 }
 
 export interface Document {
@@ -35,6 +35,15 @@ export interface Document {
   category: string;
   expiry_date?: string;
   uploaded_at: string;
+  mimeType?: string; // present on locally-picked files before upload
+}
+
+export interface UploadDocumentPayload {
+  filename: string;
+  category: string;
+  expiry_date?: string;
+  fileBase64: string;
+  mimeType: string;
 }
 
 export interface TokenResponse {
