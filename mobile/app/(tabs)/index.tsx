@@ -9,6 +9,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useDeadlines, useUpdateDeadlineStatus } from "@/hooks/useDeadlines";
 import { useHealthScore } from "@/hooks/useHealthScore";
+import { PenaltyExposureModal } from "@/components/PenaltyExposureModal";
 import type { Deadline } from "@/types";
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
@@ -128,8 +129,10 @@ function SkeletonCard() {
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 export default function DashboardScreen() {
+  const router = useRouter();
   const [activeFilter, setActiveFilter] = useState<Filter>("ALL");
   const [refreshing, setRefreshing] = useState(false);
+  const [penaltyModalVisible, setPenaltyModalVisible] = useState(false);
 
   const { data: deadlines, isLoading: dlLoading, isError: dlError, refetch: refetchDl } = useDeadlines(activeFilter === "ALL" ? undefined : activeFilter);
   const { data: scoreData, isLoading: scoreLoading, refetch: refetchScore } = useHealthScore();
@@ -212,6 +215,18 @@ export default function DashboardScreen() {
           )}
         </View>
 
+        {/* Penalty Exposure card */}
+        <Pressable style={ss.penaltyCard} onPress={() => setPenaltyModalVisible(true)}>
+          <View style={ss.penaltyLeft}>
+            <MaterialIcons name="warning" size={18} color={C.error} />
+            <View>
+              <Text style={ss.penaltyEyebrow}>PENALTY EXPOSURE</Text>
+              <Text style={ss.penaltyDesc}>Tap to view BWP breakdown</Text>
+            </View>
+          </View>
+          <MaterialIcons name="chevron-right" size={20} color={C.border} />
+        </Pressable>
+
         {/* Filter chips */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={ss.filterRow}>
           {FILTERS.map((f) => (
@@ -266,9 +281,15 @@ export default function DashboardScreen() {
       </ScrollView>
 
       {/* FAB */}
-      <Pressable style={ss.fab}>
+      <Pressable style={ss.fab} onPress={() => router.push("/add-task" as any)}>
         <MaterialIcons name="add" size={26} color="#ffffff" />
       </Pressable>
+
+      {/* Penalty Exposure Modal */}
+      <PenaltyExposureModal
+        visible={penaltyModalVisible}
+        onClose={() => setPenaltyModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -315,6 +336,12 @@ const ss = StyleSheet.create({
   bkBarWrap:     { flex: 1, height: 5, backgroundColor: C.borderSoft, borderRadius: 3, overflow: "hidden" },
   bkBar:         { height: 5, borderRadius: 3 },
   bkScore:       { fontSize: 11, fontFamily: "PublicSans_700Bold", color: C.muted, width: 26, textAlign: "right" },
+
+  // Penalty exposure card
+  penaltyCard:   { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: C.errorBg, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 4, borderWidth: 1, borderColor: "#F5C6C2" },
+  penaltyLeft:   { flexDirection: "row", alignItems: "center", gap: 10 },
+  penaltyEyebrow:{ fontSize: 12, fontFamily: "PublicSans_700Bold", color: C.error },
+  penaltyDesc:   { fontSize: 11, color: C.error, opacity: 0.75, marginTop: 1 },
 
   // Filters
   filterRow:     { paddingVertical: 14, gap: 8 },
