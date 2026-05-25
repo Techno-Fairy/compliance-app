@@ -1,3 +1,18 @@
+"""
+Deadline management endpoints.
+
+Week 2 deliverables (preserved):
+  BE-07  GET /deadlines, GET /deadlines/{id}
+  BE-08  PATCH /deadlines/{id}/status, PATCH /deadlines/{id}/checklist
+
+Week 3 deliverables:
+  BE-13  POST /deadlines/custom — create custom deadline
+         DELETE /deadlines/{id} — delete custom deadline
+         PATCH /deadlines/{id}/outstanding — update estimated outstanding BWP
+  BE-14  Status changes now write to filing_history (audit trail)
+
+All endpoints are scoped to the authenticated user's business profile.
+"""
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
@@ -6,7 +21,13 @@ from app.db.database import get_db
 from app.models.business import BusinessProfile
 from app.models.deadline import Deadline, DeadlineCategory, DeadlineStatus
 from app.models.user import User
-from app.schemas.deadline import DeadlineCreate, DeadlineResponse, DeadlineStatusUpdate
+from app.schemas.deadline import (
+    DeadlineCreate,
+    DeadlineOutstandingUpdate,
+    DeadlineResponse,
+    DeadlineStatusUpdate,
+)
+from app.services import history as history_svc
 
 router = APIRouter(prefix="/deadlines", tags=["deadlines"])
 
@@ -60,7 +81,7 @@ def list_deadlines(
     List all deadlines for the authenticated user's business.
     Optionally filter by category (BURS, CIPA, LABOUR, CUSTOM)
     and/or status (pending, complete, missed).
-    Results are sorted ascending by due date.
+    Results are sorted ascending by due date, overdue items first.
     """
     business = _get_business_or_404(db, owner_id=current_user.id)
 
@@ -95,11 +116,71 @@ def update_status(
     """
     Update the status of a deadline (pending → complete or missed).
     Only affects deadlines belonging to the authenticated user's business.
+
+    A filing history entry is written automatically for the audit trail.
     """
     business = _get_business_or_404(db, owner_id=current_user.id)
     dl = _get_deadline_or_404(db, deadline_id=deadline_id, business_id=business.id)
 
+    old_status = dl.status
     dl.status = body.status
+
+    # ── Audit trail ───────────────────────────────────────────────────────────
+    status_labels = {
+        DeadlineStatus.COMPLETE: "marked complete ✓",
+        DeadlineStatus.MISSED:   "marked missed ✗",
+        DeadlineStatus.PENDING:  "reset to pending",
+    }
+    description = (
+        f"'{dl.name}' {status_labels.get(body.status, body.status)} "
+        f"(was: {old_status})."
+    )
+    history_svc.log_entry(
+        db,
+        business_id=business.id,
+        deadline_id=dl.id,
+        action=f"deadline_{body.status}",
+        description=description,
+        performed_by=current_user.email,
+    )
+
+    db.commit()
+    db.refresh(dl)
+    return dl
+
+
+@router.patch("/{deadline_id}/outstanding", response_model=DeadlineResponse)
+def update_outstanding_amount(
+    deadline_id: int,
+    body: DeadlineOutstandingUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Update the estimated outstanding BWP amount for a deadline.
+
+    This amount is used by the penalty exposure engine to calculate
+    interest penalties. If not set, only the fixed penalty is shown.
+    """
+    business = _get_business_or_404(db, owner_id=current_user.id)
+    dl = _get_deadline_or_404(db, deadline_id=deadline_id, business_id=business.id)
+
+    dl.estimated_outstanding_bwp = body.estimated_outstanding_bwp
+
+    amount_str = (
+        f"BWP {body.estimated_outstanding_bwp:,.2f}"
+        if body.estimated_outstanding_bwp is not None
+        else "cleared"
+    )
+    history_svc.log_entry(
+        db,
+        business_id=business.id,
+        deadline_id=dl.id,
+        action="outstanding_amount_updated",
+        description=f"Estimated outstanding amount for '{dl.name}' set to {amount_str}.",
+        performed_by=current_user.email,
+    )
+
     db.commit()
     db.refresh(dl)
     return dl
@@ -113,7 +194,10 @@ def create_custom(
 ):
     """
     Create a custom compliance deadline for the authenticated user's business.
-    The due_date must be in the future (validated in the schema).
+
+    Custom deadlines allow businesses to track industry-specific obligations
+    not included in the default Botswana regulatory calendar.
+    A filing history entry is created for the audit trail.
     """
     business = _get_business_or_404(db, owner_id=current_user.id)
 
@@ -121,8 +205,22 @@ def create_custom(
         **body.model_dump(),
         business_id=business.id,
         is_custom=True,
+        category=DeadlineCategory.CUSTOM,
     )
     db.add(dl)
+
+    # Flush to get the ID before logging
+    db.flush()
+
+    history_svc.log_entry(
+        db,
+        business_id=business.id,
+        deadline_id=dl.id,
+        action="custom_deadline_created",
+        description=f"Custom deadline '{dl.name}' created (due: {dl.due_date}).",
+        performed_by=current_user.email,
+    )
+
     db.commit()
     db.refresh(dl)
     return dl
@@ -137,6 +235,8 @@ def delete_deadline(
     """
     Delete a custom deadline. System-seeded deadlines (is_custom=False)
     cannot be deleted and will return 403.
+
+    A filing history entry is created before deletion for the audit trail.
     """
     business = _get_business_or_404(db, owner_id=current_user.id)
     dl = _get_deadline_or_404(db, deadline_id=deadline_id, business_id=business.id)
@@ -152,6 +252,15 @@ def delete_deadline(
                 ),
             },
         )
+
+    history_svc.log_entry(
+        db,
+        business_id=business.id,
+        deadline_id=dl.id,
+        action="custom_deadline_deleted",
+        description=f"Custom deadline '{dl.name}' deleted.",
+        performed_by=current_user.email,
+    )
 
     db.delete(dl)
     db.commit()

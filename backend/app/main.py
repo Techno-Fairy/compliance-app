@@ -4,11 +4,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.models import business, deadline, document, user  # noqa: F401
+from app.models import history  # noqa: F401
 
 settings = get_settings()
 
 app = FastAPI(
     title=settings.APP_NAME,
+    version="0.3.0",
+    description=(
+        "CompliancePro Botswana — Business Compliance Intelligence Platform. "
+        "Week 3: Evidence Locker, Penalty Engine, Filing History."
+    ),
     docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None,
 )
@@ -26,4 +32,4 @@ app.include_router(api_router, prefix="/v1")
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": "0.3.0"}
