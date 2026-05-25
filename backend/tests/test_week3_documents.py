@@ -4,8 +4,6 @@ Tests for Week 3 — S3 service validation logic.
 These tests verify MIME type and file size validation without
 making real network calls to AWS.
 """
-import pytest
-from fastapi import HTTPException
 
 from app.services.s3 import (
     ALLOWED_MIME_TYPES,

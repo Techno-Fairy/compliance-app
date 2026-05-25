@@ -3,7 +3,7 @@ Pydantic schemas for the Evidence Locker (Document Vault).
 """
 from datetime import date, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class DocumentResponse(BaseModel):

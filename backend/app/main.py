@@ -3,8 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import get_settings
-from app.models import business, deadline, document, user  # noqa: F401
-from app.models import history  # noqa: F401
+from app.models import (  # noqa: F401
+    business,
+    deadline,
+    document,
+    history,  # noqa: F401
+    user,
+)
 
 settings = get_settings()
 

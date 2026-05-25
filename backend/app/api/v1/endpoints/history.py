@@ -12,7 +12,7 @@ The audit trail records every state-changing action:
 Results can be filtered by deadline_id to show the history for a
 single deadline (used from the Deadline Detail screen).
 """
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
@@ -21,7 +21,6 @@ from app.models.business import BusinessProfile
 from app.models.history import FilingHistoryEntry
 from app.models.user import User
 from app.schemas.history import FilingHistoryResponse
-from fastapi import HTTPException, status
 
 router = APIRouter(prefix="/history", tags=["history"])
 
