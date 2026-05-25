@@ -35,6 +35,7 @@ export interface Document {
   category: string;
   expiry_date?: string;
   uploaded_at: string;
+  deadline_id?: number;
 }
 
 export interface TokenResponse {
