@@ -35,15 +35,7 @@ export interface Document {
   category: string;
   expiry_date?: string;
   uploaded_at: string;
-  mimeType?: string; // present on locally-picked files before upload
-}
-
-export interface UploadDocumentPayload {
-  filename: string;
-  category: string;
-  expiry_date?: string;
-  fileBase64: string;
-  mimeType: string;
+  deadline_id?: number;
 }
 
 export interface TokenResponse {

@@ -9,6 +9,10 @@ Usage:
     python seed_deadlines.py --business-id 1 --year 2026
 
 The script is idempotent — running it twice will not create duplicates.
+
+Week 3 update: each deadline now includes penalty engine fields
+(fixed_penalty_bwp, monthly_interest_rate) and portal_url so the
+penalty exposure calculator works immediately after seeding.
 """
 
 import argparse
@@ -17,10 +21,14 @@ from datetime import date
 from sqlalchemy.orm import Session
 
 # Register all models with SQLAlchemy's mapper before any query runs
-from app.models import user, business, deadline, document  # noqa: F401
+from app.models import user, business, deadline, document, history  # noqa: F401
 
 from app.db.database import SessionLocal
 from app.models.deadline import Deadline, DeadlineCategory, DeadlineStatus
+
+BURS_PORTAL = "https://eservices.burs.org.bw"
+CIPA_PORTAL  = "https://obrs.gov.bw"
+LABOUR_PORTAL = "https://www.gov.bw/ministries/ministry-employment-labour-productivity"
 
 # ── Botswana 2026 Regulatory Deadline Calendar ────────────────────────────────
 #
@@ -31,7 +39,9 @@ from app.models.deadline import Deadline, DeadlineCategory, DeadlineStatus
 #   CIPA: companies.org.bw — annual return due within 30 days of
 #         anniversary of incorporation (we use a representative date).
 #
-# Format: (name, category, due_date, penalty_info, recurrence)
+# Tuple format:
+#   (name, category, due_date, penalty_info, recurrence,
+#    fixed_penalty_bwp, monthly_interest_rate, portal_url)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _burs_vat_monthly(year: int) -> list[tuple]:
@@ -58,6 +68,9 @@ def _burs_vat_monthly(year: int) -> list[tuple]:
             due,
             "BWP 1,000 fixed penalty + 1.5% interest per month on unpaid tax.",
             "monthly",
+            1000.0,   # fixed_penalty_bwp
+            0.015,    # monthly_interest_rate (1.5%)
+            BURS_PORTAL,
         ))
     return deadlines
 
@@ -86,6 +99,9 @@ def _burs_paye(year: int) -> list[tuple]:
             due,
             "BWP 500 fixed penalty + 1.5% interest per month on unpaid PAYE.",
             "monthly",
+            500.0,    # fixed_penalty_bwp
+            0.015,    # monthly_interest_rate (1.5%)
+            BURS_PORTAL,
         ))
     return deadlines
 
@@ -103,6 +119,9 @@ def _burs_cit(year: int) -> list[tuple]:
             date(year, 6, 25),
             "Penalty: 5% of estimated tax if provisional return not filed.",
             "annually",
+            2000.0,   # fixed_penalty_bwp (CIT)
+            0.015,
+            BURS_PORTAL,
         ),
         (
             f"CIT Provisional Return (2nd) - {year}",
@@ -110,6 +129,9 @@ def _burs_cit(year: int) -> list[tuple]:
             date(year, 12, 25),
             "Penalty: 5% of estimated tax if provisional return not filed.",
             "annually",
+            2000.0,
+            0.015,
+            BURS_PORTAL,
         ),
         (
             f"CIT Final Return - {year} Tax Year",
@@ -120,6 +142,9 @@ def _burs_cit(year: int) -> list[tuple]:
                 "1.5% interest per month on unpaid tax."
             ),
             "annually",
+            2000.0,
+            0.015,
+            BURS_PORTAL,
         ),
     ]
 
@@ -140,6 +165,9 @@ def _cipa_deadlines(year: int) -> list[tuple]:
                 "Risk of company deregistration after 3 months."
             ),
             "annually",
+            250.0,    # BWP 250 per month (monthly accrual — first month)
+            None,     # No interest rate; penalty is per-month flat fee
+            CIPA_PORTAL,
         ),
         (
             f"CIPA Business Name Renewal - {year}",
@@ -147,14 +175,18 @@ def _cipa_deadlines(year: int) -> list[tuple]:
             date(year, 6, 30),
             "BWP 100 late renewal fee for sole trader business names.",
             "annually",
+            100.0,
+            None,
+            CIPA_PORTAL,
         ),
     ]
 
 
 def _labour_deadlines(year: int) -> list[tuple]:
     """
-    Employment Act compliance reminders - not date-specific filings but
-    annual review checkpoints to ensure ongoing compliance.
+    Employment Act compliance reminders - annual review checkpoints.
+    No monetary fixed penalty defined by the Act for missed reviews,
+    but non-compliance creates Industrial Court liability.
     """
     return [
         (
@@ -166,6 +198,9 @@ def _labour_deadlines(year: int) -> list[tuple]:
                 "Industrial Court claims under the Employment Act."
             ),
             "annually",
+            None,     # No fixed BURS-style penalty
+            None,
+            LABOUR_PORTAL,
         ),
         (
             f"Annual Leave Records Audit - {year}",
@@ -173,6 +208,9 @@ def _labour_deadlines(year: int) -> list[tuple]:
             date(year, 6, 30),
             "Failure to grant statutory leave: BWP 5,000 fine per employee.",
             "annually",
+            5000.0,
+            None,
+            LABOUR_PORTAL,
         ),
         (
             f"Workplace Safety Compliance Review - {year}",
@@ -183,6 +221,9 @@ def _labour_deadlines(year: int) -> list[tuple]:
                 "+ potential closure order."
             ),
             "annually",
+            10000.0,
+            None,
+            LABOUR_PORTAL,
         ),
     ]
 
@@ -205,20 +246,41 @@ def seed(business_id: int, year: int, db: Session) -> int:
     Insert deadline records for the given business and year.
     Skips any deadline whose (business_id, name) pair already exists
     so the function is safe to run multiple times.
+
+    Week 3: also backfills penalty engine fields on existing records
+    if they are missing (safe to re-run after upgrading from Week 2).
     """
-    existing_names: set[str] = {
-        row.name
-        for row in db.query(Deadline.name)
+    existing: dict[str, Deadline] = {
+        dl.name: dl
+        for dl in db.query(Deadline)
         .filter(Deadline.business_id == business_id)
         .all()
     }
 
     calendar = build_deadline_calendar(year)
     inserted = 0
+    updated = 0
 
-    for name, category, due_date, penalty_info, recurrence in calendar:
-        if name in existing_names:
+    for row in calendar:
+        name, category, due_date, penalty_info, recurrence, fixed_penalty, interest_rate, portal_url = row
+
+        if name in existing:
+            # Backfill penalty fields if they are missing (idempotent upgrade)
+            dl = existing[name]
+            changed = False
+            if dl.fixed_penalty_bwp is None and fixed_penalty is not None:
+                dl.fixed_penalty_bwp = fixed_penalty
+                changed = True
+            if dl.monthly_interest_rate is None and interest_rate is not None:
+                dl.monthly_interest_rate = interest_rate
+                changed = True
+            if dl.portal_url is None and portal_url:
+                dl.portal_url = portal_url
+                changed = True
+            if changed:
+                updated += 1
             continue
+
         dl = Deadline(
             business_id=business_id,
             name=name,
@@ -228,6 +290,9 @@ def seed(business_id: int, year: int, db: Session) -> int:
             is_custom=False,
             penalty_info=penalty_info,
             recurrence=recurrence,
+            fixed_penalty_bwp=fixed_penalty,
+            monthly_interest_rate=interest_rate,
+            portal_url=portal_url,
         )
         db.add(dl)
         inserted += 1
@@ -259,7 +324,7 @@ def main() -> None:
     db: Session = SessionLocal()
     try:
         count = seed(business_id=args.business_id, year=args.year, db=db)
-        print(f"Seeded {count} deadlines for business_id={args.business_id} ({args.year}).")
+        print(f"Seeded/updated {count} deadlines for business_id={args.business_id} ({args.year}).")
     finally:
         db.close()
 

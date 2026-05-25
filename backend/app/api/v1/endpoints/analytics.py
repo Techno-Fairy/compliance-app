@@ -1,3 +1,15 @@
+"""
+Analytics endpoints — health score and penalty exposure.
+
+Week 2 deliverables (preserved):
+  BE-09  GET /analytics/health-score
+
+Week 3 deliverables:
+  BE-12  GET /analytics/penalty-exposure — per-deadline BWP calculation
+
+Week 5 deliverables (stub included for completeness):
+  BE-23  GET /analytics/trends — 6-month on-time vs. late chart data
+"""
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends
@@ -59,7 +71,6 @@ def _calculate_health_score(
         (overall_score, breakdown)
         breakdown is a list of dicts: {category, score, total, complete, overdue}
     """
-    # Group by category
     by_category: dict[str, list[Deadline]] = {c: [] for c in DeadlineCategory}
     for dl in deadlines:
         by_category[dl.category].append(dl)
@@ -69,7 +80,7 @@ def _calculate_health_score(
 
     for cat, items in by_category.items():
         if not items:
-            category_scores[cat] = 100.0  # No deadlines = fully compliant
+            category_scores[cat] = 100.0
             continue
 
         total = len(items)
@@ -90,7 +101,6 @@ def _calculate_health_score(
             "overdue": overdue,
         })
 
-    # Weighted overall score
     total_weight = sum(
         CATEGORY_WEIGHTS[cat]
         for cat, items in by_category.items()
@@ -104,6 +114,65 @@ def _calculate_health_score(
     ) / total_weight
 
     return round(overall), breakdown
+
+
+# ── Penalty Exposure Engine ───────────────────────────────────────────────────
+#
+# Formula (from PRD Section 10.3):
+#
+#   months_overdue = days_overdue / 30
+#
+#   penalty_today = fixed_penalty
+#               + (outstanding_amount * monthly_rate * months_overdue)
+#
+#   penalty_in_7_days = fixed_penalty
+#               + (outstanding_amount * monthly_rate * (months_overdue + 7/30))
+#
+# If no outstanding amount is set, only the fixed_penalty is shown and
+# the UI displays "Minimum BWP X exposure".
+#
+# Penalty data is stored on the Deadline model (set by the seed script):
+#   fixed_penalty_bwp        → e.g. 1000.0 for VAT
+#   monthly_interest_rate    → e.g. 0.015 (1.5%)
+#   estimated_outstanding_bwp → user-entered; None if not set
+#
+
+def _calculate_penalty(dl: Deadline, today: date) -> dict:
+    """
+    Calculate the BWP penalty exposure for a single overdue deadline.
+
+    Returns a dict matching the PRD API contract (Section 10.4).
+    """
+    days_overdue = max(0, (today - dl.due_date).days)
+    months_overdue = days_overdue / 30.0
+
+    fixed = dl.fixed_penalty_bwp or 0.0
+    rate = dl.monthly_interest_rate or 0.0
+    outstanding = dl.estimated_outstanding_bwp  # may be None
+
+    if outstanding is not None:
+        interest_today = outstanding * rate * months_overdue
+        interest_7d = outstanding * rate * (months_overdue + 7 / 30)
+    else:
+        interest_today = 0.0
+        interest_7d = 0.0
+
+    total_today = fixed + interest_today
+    total_7d = fixed + interest_7d
+
+    return {
+        "deadline_id": dl.id,
+        "name": dl.name,
+        "category": dl.category,
+        "days_overdue": days_overdue,
+        "fixed_penalty_bwp": round(fixed, 2),
+        "interest_penalty_bwp": round(interest_today, 2),
+        "total_penalty_bwp": round(total_today, 2),
+        "penalty_in_7_days_bwp": round(total_7d, 2),
+        "estimated_outstanding_bwp": outstanding,
+        # Flag so the UI can show "Minimum BWP X" when no outstanding amount
+        "is_minimum_estimate": outstanding is None,
+    }
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -174,6 +243,80 @@ def get_health_score(
     }
 
 
+@router.get("/penalty-exposure")
+def get_penalty_exposure(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Return the total BWP penalty exposure for the authenticated user's business,
+    with a per-deadline breakdown.
+
+    Only deadlines that are overdue (MISSED or PENDING past due date) are
+    included. Deadlines marked COMPLETE are excluded.
+
+    Response matches the PRD Section 10.4 API contract:
+    {
+        "total_exposure_bwp": 3500.00,
+        "has_minimum_estimates": true,
+        "breakdown": [
+            {
+                "deadline_id": 77,
+                "name": "PAYE Remittance - January 2026",
+                "category": "BURS",
+                "days_overdue": 89,
+                "fixed_penalty_bwp": 500.00,
+                "interest_penalty_bwp": 0.00,
+                "total_penalty_bwp": 500.00,
+                "penalty_in_7_days_bwp": 500.00,
+                "estimated_outstanding_bwp": null,
+                "is_minimum_estimate": true
+            }
+        ]
+    }
+    """
+    business = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.owner_id == current_user.id)
+        .first()
+    )
+    if not business:
+        return {
+            "total_exposure_bwp": 0.0,
+            "has_minimum_estimates": False,
+            "breakdown": [],
+        }
+
+    today = date.today()
+
+    # Only fetch overdue deadlines — pending past due date OR explicitly missed
+    all_deadlines = (
+        db.query(Deadline)
+        .filter(Deadline.business_id == business.id)
+        .all()
+    )
+
+    overdue = [
+        d for d in all_deadlines
+        if d.status == DeadlineStatus.MISSED
+        or (d.status == DeadlineStatus.PENDING and d.due_date < today)
+    ]
+
+    breakdown = [_calculate_penalty(dl, today) for dl in overdue]
+
+    # Sort by highest exposure first so the dashboard shows the worst risk
+    breakdown.sort(key=lambda x: x["total_penalty_bwp"], reverse=True)
+
+    total = round(sum(b["total_penalty_bwp"] for b in breakdown), 2)
+    has_minimum_estimates = any(b["is_minimum_estimate"] for b in breakdown)
+
+    return {
+        "total_exposure_bwp": total,
+        "has_minimum_estimates": has_minimum_estimates,
+        "breakdown": breakdown,
+    }
+
+
 @router.get("/trends")
 def get_trends(
     db: Session = Depends(get_db),
@@ -184,7 +327,7 @@ def get_trends(
     Used to render the trend chart on the Dashboard (Week 5).
 
     A deadline is counted in the month of its due_date.
-    on_time  = status is complete AND was not overdue when completed
+    on_time  = status is complete
     late     = status is missed OR pending past due date
     """
     business = (
@@ -196,12 +339,9 @@ def get_trends(
         return {"months": []}
 
     today = date.today()
-    # Build 6-month window ending this month
     months = []
     for i in range(5, -1, -1):
-        # First day of each month going back
         first = (today.replace(day=1) - timedelta(days=i * 30)).replace(day=1)
-        # Last day of that month
         if first.month == 12:
             last = first.replace(year=first.year + 1, month=1, day=1) - timedelta(days=1)
         else:
