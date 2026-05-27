@@ -13,7 +13,7 @@ Documents are stored in S3 under:
 
 Pre-signed download URLs expire after 15 minutes (900 s).
 """
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
@@ -101,8 +101,9 @@ def list_documents(
 @router.post("", response_model=DocumentUploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
     file: UploadFile,
-    category: str = Query(..., description="Document category"),
-    deadline_id: int | None = Query(default=None, description="Link to a specific deadline"),
+    category: str = Form(..., description="Document category"),
+    deadline_id: int | None = Form(default=None, description="Link to a specific deadline"),
+    expiry_date: str | None = Form(default=None, description="Expiry date (YYYY-MM-DD), for tax clearance certs etc."),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -176,6 +177,21 @@ async def upload_document(
     # ── Upload to S3 ──────────────────────────────────────────────────────────
     import io
     s3_key = s3_svc.build_s3_key(business.id, file.filename or "upload")
+    # ── Parse expiry_date if provided ────────────────────────────────────────
+    parsed_expiry = None
+    if expiry_date:
+        from datetime import date as date_type
+        try:
+            parsed_expiry = date_type.fromisoformat(expiry_date)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "INVALID_DATE",
+                    "message": "expiry_date must be in YYYY-MM-DD format.",
+                },
+            )
+
     s3_svc.upload_file(
         file_obj=io.BytesIO(content),
         s3_key=s3_key,
@@ -192,6 +208,7 @@ async def upload_document(
         mime_type=mime_type,
         file_size_bytes=file_size,
         category=category,
+        expiry_date=parsed_expiry,
     )
     db.add(doc)
 

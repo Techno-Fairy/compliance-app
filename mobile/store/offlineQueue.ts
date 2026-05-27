@@ -12,7 +12,7 @@
  *   const { enqueue } = useOfflineQueue();
  *   enqueue({ method: "PATCH", url: "/deadlines/5/status", body: { status: "complete" } });
  *
- * The flushQueue() function is called automatically when NetInfo reports
+ * The flushQueue() function is called automatically when NetInfo reportsnpx 
  * "connected" (see the useNetworkFlusher hook at the bottom of this file,
  * which should be mounted once near the app root).
  */

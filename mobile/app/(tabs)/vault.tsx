@@ -44,6 +44,17 @@ const C = {
 const DOC_CATEGORIES = ["VAT Return", "PAYE Receipt", "CIT Return", "CIPA Certificate", "Trade Licence", "Employment Contract", "Other"] as const;
 type DocCategory = typeof DOC_CATEGORIES[number];
 
+// Maps the human-readable label to the snake_case value the API accepts
+const CATEGORY_API_VALUE: Record<DocCategory, string> = {
+  "VAT Return":          "vat_receipt",
+  "PAYE Receipt":        "paye_receipt",
+  "CIT Return":          "cit_receipt",
+  "CIPA Certificate":    "cipa_certificate",
+  "Trade Licence":       "trade_licence",
+  "Employment Contract": "employment_contract",
+  "Other":               "other",
+};
+
 function UploadModal({ visible, onClose, onUpload }: {
   visible: boolean; onClose: () => void;
   onUpload: (f: { uri: string; name: string; mimeType: string; category: string; expiry_date?: string }) => void;
@@ -79,7 +90,7 @@ function UploadModal({ visible, onClose, onUpload }: {
 
   const handleConfirm = () => {
     if (!picked) { Alert.alert("No file", "Please select a file or take a photo."); return; }
-    onUpload({ ...picked, category, expiry_date: expiryDate || undefined });
+    onUpload({ ...picked, category: CATEGORY_API_VALUE[category], expiry_date: expiryDate || undefined });
     reset(); onClose();
   };
 

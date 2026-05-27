@@ -1,5 +1,8 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
 from app.core.config import get_settings
@@ -33,6 +36,13 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/v1")
+
+# Local dev: serve uploaded files at /dev/files/<s3_key>
+# Only active when USE_LOCAL_STORAGE=true — never runs in prod.
+if settings.USE_LOCAL_STORAGE:
+    _upload_dir = Path("local_uploads")
+    _upload_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/dev/files", StaticFiles(directory=str(_upload_dir)), name="dev_files")
 
 
 @app.get("/health")
