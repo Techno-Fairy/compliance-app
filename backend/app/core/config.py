@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     S3_REGION: str = "af-south-1"
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
+    S3_ENDPOINT_URL: str = ""  # Supabase/R2/MinIO endpoint; leave empty for AWS
+    USE_LOCAL_STORAGE: bool = False  # True = skip S3, write to local_uploads/ (dev only)
 
     # Push Notifications
     FCM_SERVER_KEY: str = ""

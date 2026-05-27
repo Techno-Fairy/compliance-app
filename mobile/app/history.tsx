@@ -14,8 +14,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { format, parseISO } from "date-fns";
-import { useFilingHistory } from "@/hooks/useFilingHistory";
-import type { HistoryEntry } from "@/hooks/useFilingHistory";
+import { useFilingHistory } from "../hooks/useFilingHistory";
+import type { HistoryEntry } from "../hooks/useFilingHistory";
 
 const C = {
   bg:        "#f3faff",
