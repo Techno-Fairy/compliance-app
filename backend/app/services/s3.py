@@ -202,3 +202,44 @@ def _local_delete(s3_key: str) -> None:
     path = _local_path(s3_key)
     if path.exists():
         path.unlink()
+
+
+def fetch_bytes(s3_key: str) -> bytes:
+    """
+    Fetch the raw bytes of a stored object.
+
+    Used by the evidence pack service to read uploaded documents before
+    merging them into a single PDF.  Works transparently in both local
+    dev (reads from local_uploads/) and S3 prod environments.
+
+    Raises:
+        HTTPException 404  — key does not exist in local storage.
+        HTTPException 503  — S3 / boto3 error.
+    """
+    if _use_local():
+        path = _local_path(s3_key)
+        if not path.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": "NOT_FOUND",
+                    "message": f"File not found in local storage: {s3_key}",
+                },
+            )
+        return path.read_bytes()
+
+    settings = get_settings()
+    client = _get_s3_client()
+    try:
+        from botocore.exceptions import BotoCoreError, ClientError
+
+        resp = client.get_object(Bucket=settings.S3_BUCKET_NAME, Key=s3_key)
+        return resp["Body"].read()
+    except (BotoCoreError, ClientError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "S3_FETCH_FAILED",
+                "message": f"Could not fetch document from storage: {exc}",
+            },
+        ) from exc

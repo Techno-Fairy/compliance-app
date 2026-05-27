@@ -11,6 +11,7 @@ from app.models import (  # noqa: F401
     deadline,
     document,
     history,  # noqa: F401
+    knowledge,
     user,
 )
 
@@ -18,10 +19,10 @@ settings = get_settings()
 
 app = FastAPI(
     title=settings.APP_NAME,
-    version="0.3.0",
+    version="0.4.0",
     description=(
         "CompliancePro Botswana — Business Compliance Intelligence Platform. "
-        "Week 3: Evidence Locker, Penalty Engine, Filing History."
+        "Week 4: Knowledge Base, PDF Report Generation, Evidence Pack."
     ),
     docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None,
