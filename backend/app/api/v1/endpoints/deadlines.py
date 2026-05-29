@@ -201,11 +201,13 @@ def create_custom(
     """
     business = _get_business_or_404(db, owner_id=current_user.id)
 
+
+    data = body.model_dump()
+    data["category"] = DeadlineCategory.CUSTOM   # enforce CUSTOM regardless of client input
     dl = Deadline(
-        **body.model_dump(),
+        **data,
         business_id=business.id,
         is_custom=True,
-        category=DeadlineCategory.CUSTOM,
     )
     db.add(dl)
 
