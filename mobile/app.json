@@ -29,7 +29,19 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-sqlite"
-    ]
+      "expo-sqlite",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#000b25"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "YOUR-EXPO-PROJECT-ID-HERE"
+      }
+    }
   }
 }
