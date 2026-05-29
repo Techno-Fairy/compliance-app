@@ -1,24 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { FilingHistoryEntry } from "@/types";
 
-export interface HistoryEntry {
-  id: number;
-  action_type: string;
-  deadline_id?: number;
-  deadline_name?: string;
-  document_id?: number;
-  document_filename?: string;
-  user_email?: string;
-  created_at: string;
-  notes?: string;
-}
+// Re-export so history.tsx can import HistoryEntry from this hook
+export type { FilingHistoryEntry as HistoryEntry };
 
 export function useFilingHistory(deadlineId?: number) {
-  return useQuery<HistoryEntry[]>({
+  return useQuery<FilingHistoryEntry[]>({
     queryKey: ["history", deadlineId],
     queryFn: async () => {
       const params = deadlineId ? { deadline_id: deadlineId } : {};
-      const { data } = await api.get<HistoryEntry[]>("/history", { params });
+      const { data } = await api.get<FilingHistoryEntry[]>("/history", { params });
       return data;
     },
   });
