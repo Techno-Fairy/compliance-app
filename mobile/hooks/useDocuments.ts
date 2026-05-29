@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { API_BASE_URL } from "@/constants";
 import type { Document } from "@/types";
 
 export function useDocuments() {
@@ -8,6 +9,25 @@ export function useDocuments() {
     queryFn: async () => {
       const { data } = await api.get<Document[]>("/documents");
       return data;
+    },
+  });
+}
+
+export function useGetDocumentDownloadUrl() {
+  return useMutation({
+    mutationFn: async (id: number): Promise<string> => {
+      const { data } = await api.get<{ download_url: string; expires_in_seconds: number }>(
+        `/documents/${id}`
+      );
+      const url = data.download_url;
+      // In local dev mode the backend returns a relative path like
+      // /dev/files/compliance-documents/{id}/....  Linking.openURL needs
+      // an absolute URL, so prepend the API base (strip the /v1 suffix).
+      if (url.startsWith("/")) {
+        const base = (API_BASE_URL as string).replace(/\/v1\/?$/, "");
+        return `${base}${url}`;
+      }
+      return url;
     },
   });
 }
