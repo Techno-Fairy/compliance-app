@@ -96,4 +96,9 @@ export interface FilingHistoryEntry {
   description: string;
   performed_by?: string | null;
   created_at: string;
+  // Joined fields returned by the API (may be null if not applicable)
+  deadline_name?: string | null;
+  document_filename?: string | null;
+  notes?: string | null;
+  user_email?: string | null;
 }
