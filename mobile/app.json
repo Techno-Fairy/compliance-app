@@ -40,7 +40,7 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "YOUR-EXPO-PROJECT-ID-HERE"
+        "projectId": ""
       }
     }
   }

@@ -3,15 +3,21 @@ import { useState } from "react";
 import {
   View, Text, TextInput, Pressable,
   StyleSheet, ActivityIndicator, Alert, ScrollView,
-  Switch, TouchableOpacity,
+  Switch, TouchableOpacity, Modal, FlatList,
 } from "react-native";
 import { router } from "expo-router";
-import { Picker } from "@react-native-picker/picker";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useFonts, PublicSans_400Regular, PublicSans_600SemiBold, PublicSans_700Bold } from "@expo-google-fonts/public-sans";
 import { api } from "@/lib/api";
 
 type CompanyType = "sole_trader" | "pty_ltd" | "partnership" | "ngo";
+
+const COMPANY_TYPES: { label: string; value: CompanyType }[] = [
+  { label: "Pty Ltd (Private Limited Company)", value: "pty_ltd" },
+  { label: "Sole Trader",                        value: "sole_trader" },
+  { label: "Partnership",                        value: "partnership" },
+  { label: "NGO / Non-Profit",                   value: "ngo" },
+];
 
 const C = {
   primary:        "#000b25",
@@ -32,6 +38,7 @@ const C = {
 export default function BusinessProfileScreen() {
   const [businessName, setBusinessName] = useState("");
   const [companyType, setCompanyType] = useState<CompanyType>("pty_ltd");
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [cipaNumber, setCipaNumber] = useState("");
   const [bursTin, setBursTin] = useState("");
   const [vatRegistered, setVatRegistered] = useState(false);
@@ -109,15 +116,38 @@ export default function BusinessProfileScreen() {
           {/* Company Type */}
           <View style={s.field}>
             <Text style={s.label}>Company Type</Text>
-            <View style={s.pickerWrap}>
-              <Picker selectedValue={companyType} onValueChange={(v) => setCompanyType(v as CompanyType)} style={s.picker}>
-                <Picker.Item label="Pty Ltd (Private Limited Company)" value="pty_ltd" />
-                <Picker.Item label="Sole Trader" value="sole_trader" />
-                <Picker.Item label="Partnership" value="partnership" />
-                <Picker.Item label="NGO / Non-Profit" value="ngo" />
-              </Picker>
-              <MaterialIcons name="expand-more" size={20} color={C.onVariant} style={s.pickerArrow} />
-            </View>
+            <TouchableOpacity style={s.dropdownBtn} onPress={() => setDropdownOpen(true)} activeOpacity={0.7}>
+              <Text style={s.dropdownBtnText}>
+                {COMPANY_TYPES.find(t => t.value === companyType)?.label ?? "Select type"}
+              </Text>
+              <MaterialIcons name="expand-more" size={20} color={C.onVariant} />
+            </TouchableOpacity>
+
+            <Modal visible={dropdownOpen} transparent animationType="fade" onRequestClose={() => setDropdownOpen(false)}>
+              <Pressable style={s.modalOverlay} onPress={() => setDropdownOpen(false)}>
+                <View style={s.modalSheet}>
+                  <Text style={s.modalTitle}>Company Type</Text>
+                  <FlatList
+                    data={COMPANY_TYPES}
+                    keyExtractor={item => item.value}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity
+                        style={[s.modalOption, item.value === companyType && s.modalOptionSelected]}
+                        onPress={() => { setCompanyType(item.value); setDropdownOpen(false); }}
+                      >
+                        <Text style={[s.modalOptionText, item.value === companyType && s.modalOptionTextSelected]}>
+                          {item.label}
+                        </Text>
+                        {item.value === companyType && (
+                          <MaterialIcons name="check" size={18} color={C.secondary} />
+                        )}
+                      </TouchableOpacity>
+                    )}
+                    ItemSeparatorComponent={() => <View style={s.modalDivider} />}
+                  />
+                </View>
+              </Pressable>
+            </Modal>
           </View>
 
           {/* CIPA Number */}
@@ -247,6 +277,18 @@ const s = StyleSheet.create({
   pickerWrap:    { backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#c5c6cf", borderRadius: 12, overflow: "hidden", position: "relative" },
   picker:        { height: 50, width: "100%" },
   pickerArrow:   { position: "absolute", right: 14, top: "50%", marginTop: -10, pointerEvents: "none" },
+
+  // Custom dropdown
+  dropdownBtn:        { backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#c5c6cf", borderRadius: 12, paddingVertical: 13, paddingHorizontal: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  dropdownBtnText:    { fontSize: 15, fontFamily: "PublicSans_400Regular", color: "#071e27", flex: 1, marginRight: 8 },
+  modalOverlay:       { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", alignItems: "center", padding: 24 },
+  modalSheet:         { backgroundColor: "#ffffff", borderRadius: 16, width: "100%", overflow: "hidden", paddingVertical: 8 },
+  modalTitle:         { fontSize: 13, fontFamily: "PublicSans_700Bold", color: "#44474e", letterSpacing: 0.5, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 10, textTransform: "uppercase" },
+  modalOption:        { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 14, paddingHorizontal: 20 },
+  modalOptionSelected:{ backgroundColor: "#f0faf0" },
+  modalOptionText:    { fontSize: 15, fontFamily: "PublicSans_400Regular", color: "#071e27", flex: 1, marginRight: 8 },
+  modalOptionTextSelected: { fontFamily: "PublicSans_600SemiBold", color: "#2a6b2c" },
+  modalDivider:       { height: 1, backgroundColor: "#f0f0f0", marginHorizontal: 16 },
 
   // Toggle card
   toggleCard:    { backgroundColor: "#e6f6ff", borderWidth: 1, borderColor: "#c5c6cf", borderRadius: 14, padding: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },

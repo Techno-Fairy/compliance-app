@@ -1,5 +1,5 @@
 // mobile/app/(auth)/register.tsx
-import { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   View, Text, TextInput, Pressable,
   StyleSheet, ActivityIndicator, Alert, ScrollView,
@@ -24,6 +24,50 @@ const CustomCheckbox = ({ value, onValueChange }: { value: boolean; onValueChang
   </Pressable>
 );
 
+type FieldProps = {
+  label: string;
+  placeholder: string;
+  value: string;
+  onChange: (text: string) => void;
+  secure?: boolean;
+  showToggle?: boolean;
+  onToggle?: () => void;
+  keyType?: any;
+  inputRef?: React.RefObject<TextInput | null>;
+  returnKeyType?: "next" | "done" | "go" | "search" | "send";
+  onSubmitEditing?: () => void;
+};
+
+const Field = ({ label, placeholder, value, onChange, secure, showToggle, onToggle, keyType = "default", inputRef, returnKeyType = "next", onSubmitEditing }: FieldProps) => (
+  <View style={s.field}>
+    <Text style={s.label}>{label}</Text>
+    <View style={s.inputWrap}>
+      <View style={s.inputIcon}>
+        <MaterialIcons
+          name={secure !== undefined ? "lock" : label.toLowerCase().includes("email") ? "mail" : "person"}
+          size={18} color="#44474e"
+        />
+      </View>
+      <TextInput
+        ref={inputRef}
+        style={[s.input, (showToggle || onToggle) && { paddingRight: 48 }]}
+        placeholder={placeholder} placeholderTextColor="#a0a3ab"
+        autoCapitalize="none" keyboardType={keyType}
+        secureTextEntry={secure && !showToggle}
+        value={value} onChangeText={onChange}
+        blurOnSubmit={false}
+        returnKeyType={returnKeyType}
+        onSubmitEditing={onSubmitEditing}
+      />
+      {onToggle && (
+        <TouchableOpacity style={s.eye} onPress={onToggle}>
+          <Ionicons name={showToggle ? "eye-off" : "eye"} size={18} color="#44474e" />
+        </TouchableOpacity>
+      )}
+    </View>
+  </View>
+);
+
 export default function RegisterScreen() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -35,6 +79,10 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const register = useAuthStore((s) => s.register);
+
+  const emailRef    = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInput>(null);
+  const confirmRef  = useRef<TextInput>(null);
 
   const [fontsLoaded] = useFonts({ PublicSans_400Regular, PublicSans_600SemiBold, PublicSans_700Bold });
   if (!fontsLoaded) return <View style={s.loading}><ActivityIndicator size="large" color="#000b25" /></View>;
@@ -60,29 +108,12 @@ export default function RegisterScreen() {
 
   const handleSuccessClose = () => { setShowSuccess(false); router.replace("/business-profile"); };
 
-  const Field = ({ label, placeholder, value, onChange, secure, showToggle, onToggle, keyType = "default" }: any) => (
-    <View style={s.field}>
-      <Text style={s.label}>{label}</Text>
-      <View style={s.inputWrap}>
-        <View style={s.inputIcon}><MaterialIcons name={secure !== undefined ? "lock" : label.toLowerCase().includes("email") ? "mail" : "person"} size={18} color="#44474e" /></View>
-        <TextInput
-          style={[s.input, showToggle && { paddingRight: 48 }]}
-          placeholder={placeholder} placeholderTextColor="#a0a3ab"
-          autoCapitalize="none" keyboardType={keyType}
-          secureTextEntry={secure && !showToggle}
-          value={value} onChangeText={onChange}
-        />
-        {onToggle && (
-          <TouchableOpacity style={s.eye} onPress={onToggle}>
-            <Ionicons name={showToggle ? "eye-off" : "eye"} size={18} color="#44474e" />
-          </TouchableOpacity>
-        )}
-      </View>
-    </View>
-  );
-
   return (
-    <ScrollView contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      contentContainerStyle={s.container}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    >
       {/* Header */}
       <View style={s.header}>
         <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
@@ -98,14 +129,17 @@ export default function RegisterScreen() {
 
       {/* Form */}
       <View style={s.form}>
-        <Field label="FULL NAME" placeholder="Motsamai Kgosi" value={fullName} onChange={setFullName} />
-        <Field label="EMAIL ADDRESS" placeholder="motsamai@business.bw" value={email} onChange={setEmail} keyType="email-address" />
+        <Field label="FULL NAME" placeholder="Motsamai Kgosi" value={fullName} onChange={setFullName}
+          returnKeyType="next" onSubmitEditing={() => emailRef.current?.focus()} />
+        <Field label="EMAIL ADDRESS" placeholder="motsamai@business.bw" value={email} onChange={setEmail} keyType="email-address"
+          inputRef={emailRef} returnKeyType="next" onSubmitEditing={() => passwordRef.current?.focus()} />
         <View style={s.field}>
           <Text style={s.label}>PASSWORD</Text>
           <View style={s.inputWrap}>
             <View style={s.inputIcon}><MaterialIcons name="lock" size={18} color="#44474e" /></View>
-            <TextInput style={[s.input, { paddingRight: 48 }]} placeholder="••••••••" placeholderTextColor="#a0a3ab"
-              secureTextEntry={!showPassword} value={password} onChangeText={setPassword} />
+            <TextInput ref={passwordRef} style={[s.input, { paddingRight: 48 }]} placeholder="••••••••" placeholderTextColor="#a0a3ab"
+              secureTextEntry={!showPassword} value={password} onChangeText={setPassword}
+              blurOnSubmit={false} returnKeyType="next" onSubmitEditing={() => confirmRef.current?.focus()} />
             <TouchableOpacity style={s.eye} onPress={() => setShowPassword(!showPassword)}>
               <Ionicons name={showPassword ? "eye-off" : "eye"} size={18} color="#44474e" />
             </TouchableOpacity>
@@ -115,8 +149,9 @@ export default function RegisterScreen() {
           <Text style={s.label}>CONFIRM PASSWORD</Text>
           <View style={s.inputWrap}>
             <View style={s.inputIcon}><MaterialIcons name="lock-outline" size={18} color="#44474e" /></View>
-            <TextInput style={[s.input, { paddingRight: 48 }]} placeholder="••••••••" placeholderTextColor="#a0a3ab"
-              secureTextEntry={!showConfirm} value={confirm} onChangeText={setConfirm} />
+            <TextInput ref={confirmRef} style={[s.input, { paddingRight: 48 }]} placeholder="••••••••" placeholderTextColor="#a0a3ab"
+              secureTextEntry={!showConfirm} value={confirm} onChangeText={setConfirm}
+              blurOnSubmit={true} returnKeyType="done" onSubmitEditing={handleRegister} />
             <TouchableOpacity style={s.eye} onPress={() => setShowConfirm(!showConfirm)}>
               <Ionicons name={showConfirm ? "eye-off" : "eye"} size={18} color="#44474e" />
             </TouchableOpacity>

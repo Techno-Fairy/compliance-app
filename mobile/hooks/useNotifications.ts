@@ -21,9 +21,24 @@ Notifications.setNotificationHandler({
 });
 
 // ── Permission + token registration ──────────────────────────────────────────
+// Returns the Expo push token, or null when push is unavailable:
+//   - simulator / emulator
+//   - Expo Go (SDK 53+ removed remote push from Expo Go; use a dev build)
+//   - user denied permission
+//   - no EAS projectId configured
+// Callers treat null as "push unavailable" — local prefs still work fine.
 export async function registerForPushNotifications(): Promise<string | null> {
   if (!Device.isDevice) {
     console.warn("Push notifications only work on physical devices.");
+    return null;
+  }
+
+  // Expo Go (SDK 53+) does not support remote push — detect and bail cleanly.
+  if (Constants.appOwnership === "expo") {
+    console.info(
+      "Running in Expo Go — remote push unavailable. " +
+      "Use a dev build (npx expo run:ios / run:android) for full push support."
+    );
     return null;
   }
 
@@ -51,18 +66,19 @@ export async function registerForPushNotifications(): Promise<string | null> {
     });
   }
 
+  const projectId =
+    Constants.expoConfig?.extra?.eas?.projectId?.trim() ||
+    Constants.easConfig?.projectId?.trim();
+
+  if (!projectId) {
+    console.warn(
+      "No EAS projectId in app.json extra.eas.projectId — skipping push token. " +
+      "Add your EAS projectId to enable remote push notifications."
+    );
+    return null;
+  }
+
   try {
-    const projectId =
-      Constants.expoConfig?.extra?.eas?.projectId ??
-      Constants.easConfig?.projectId;
-
-    if (!projectId) {
-      console.warn(
-        "No EAS projectId found in app.json extra.eas.projectId — skipping push token registration."
-      );
-      return null;
-    }
-
     const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
     return token;
   } catch (e) {

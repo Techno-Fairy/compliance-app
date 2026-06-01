@@ -1,31 +1,21 @@
 // mobile/hooks/useReports.ts
 // FE-17: Reports — generate compliance PDF and share it
-//
-// Backend:
-//   GET /reports/compliance-pdf?period=YYYY-MM  → streams PDF bytes directly
-//
-// expo-file-system v19 (SDK 54) removed the legacy constants
-// (cacheDirectory, EncodingType, writeAsStringAsync) from the default export.
-// The new API lives at 'expo-file-system/next' and uses File / Paths classes.
-//
-// Strategy:
-//   fetch() with auth header → ArrayBuffer → base64 → File.write() → share URI
 
 import { useMutation } from "@tanstack/react-query";
 import * as Sharing from "expo-sharing";
-import { File, Paths } from "expo-file-system/next";
 import * as SecureStore from "expo-secure-store";
+import { File, Paths } from "expo-file-system/next";
 import { API_BASE_URL } from "@/constants";
 
 export interface GenerateReportPayload {
   report_type: "monthly" | "quarterly" | "annual";
   year: number;
-  month?: number;    // 1-12, required for monthly
-  quarter?: number;  // 1-4, required for quarterly
+  month?: number;
+  quarter?: number;
 }
 
 export interface GeneratedReport {
-  localUri: string;    // file:// URI — ready to pass to expo-sharing
+  localUri: string;
   period_label: string;
 }
 
@@ -50,15 +40,18 @@ export function buildPeriodLabel(payload: GenerateReportPayload): string {
   return `Full Year ${payload.year}`;
 }
 
-// ── ArrayBuffer → base64 (React Native safe — no FileReader / atob) ───────────
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
+// ── ArrayBuffer → binary string ───────────────────────────────────────────────
+// File.write() from expo-file-system/next stores whatever string you pass —
+// passing the raw binary string (not base64) means bytes are stored as-is,
+// producing a valid PDF that expo-sharing can open directly.
+function arrayBufferToBinaryString(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
-  const CHUNK = 8192; // avoid stack overflow on large PDFs
+  const CHUNK = 8192;
   let binary = "";
   for (let i = 0; i < bytes.length; i += CHUNK) {
     binary += String.fromCharCode(...(bytes.subarray(i, i + CHUNK) as any));
   }
-  return btoa(binary);
+  return binary;
 }
 
 // ── Fetch PDF → write to cache → return file:// URI ──────────────────────────
@@ -69,20 +62,13 @@ async function downloadPdfToCache(url: string, filename: string): Promise<string
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
 
-  if (!response.ok) {
-    throw new Error(`Server returned ${response.status}`);
-  }
+  if (!response.ok) throw new Error(`${response.status}`);
 
   const buffer = await response.arrayBuffer();
-  const base64 = arrayBufferToBase64(buffer);
+  const binary = arrayBufferToBinaryString(buffer);
 
-  // expo-file-system/next API (SDK 54):
-  //   Paths.cache  → cache directory URI
-  //   new File(dir, name) → File object
-  //   file.write(content, { encoding: "base64" }) → writes bytes
-  //   file.uri → file:// URI for sharing
   const file = new File(Paths.cache, filename);
-  await file.write(base64, { encoding: "base64" } as any);
+  file.write(binary);
 
   return file.uri;
 }
@@ -93,13 +79,10 @@ export function useGenerateReport() {
     mutationFn: async (payload: GenerateReportPayload): Promise<GeneratedReport> => {
       const period      = buildPeriodParam(payload);
       const periodLabel = buildPeriodLabel(payload);
+      const url         = `${API_BASE_URL}/reports/compliance-pdf?period=${encodeURIComponent(period)}`;
+      const filename    = `CompliancePro_${periodLabel.replace(/[\s–()]+/g, "_")}_${Date.now()}.pdf`;
 
-      // API_BASE_URL = "http://<host>:8000/v1"
-      const url = `${API_BASE_URL}/reports/compliance-pdf?period=${encodeURIComponent(period)}`;
-
-      const filename = `CompliancePro_${periodLabel.replace(/[\s–()]+/g, "_")}_${Date.now()}.pdf`;
       const localUri = await downloadPdfToCache(url, filename);
-
       return { localUri, period_label: periodLabel };
     },
   });
