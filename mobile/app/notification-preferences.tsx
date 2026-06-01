@@ -15,6 +15,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import Constants from "expo-constants";
+import * as Device from "expo-device";
 import {
   DEFAULT_PREFS,
   registerForPushNotifications,
@@ -92,11 +94,17 @@ export default function NotificationPreferencesScreen() {
     (async () => {
       try {
         const token = await registerForPushNotifications();
-        setPermGranted(token !== null);
+        // token === null can mean: Expo Go, simulator, or permission denied.
+        // Only treat it as "denied" if we're on a real device outside Expo Go —
+        // otherwise allow the user to configure preferences regardless.
+        const isExpoGo = (Constants as any).appOwnership === "expo";
+        const isSimulator = !Device.isDevice;
+        setPermGranted(token !== null || isExpoGo || isSimulator);
+
         const serverPrefs = await getNotificationPrefs();
         setPrefs(serverPrefs);
       } catch {
-        // API not yet implemented — use defaults
+        // API not yet implemented or Expo Go token failure — use defaults
         setPermGranted(true);
       } finally {
         setLoading(false);
@@ -145,6 +153,19 @@ export default function NotificationPreferencesScreen() {
       </View>
 
       <ScrollView style={s.scroll} contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
+
+        {/* Expo Go limited-push banner */}
+        {(Constants as any).appOwnership === "expo" && (
+          <View style={s.permBannerWarn}>
+            <MaterialIcons name="info-outline" size={18} color={C.amber} />
+            <View style={s.permText}>
+              <Text style={[s.permTitle, { color: C.amber }]}>Limited in Expo Go</Text>
+              <Text style={[s.permDesc, { color: C.amber }]}>
+                Remote push delivery requires a development build. Your preferences are saved and will apply once you run a dev build.
+              </Text>
+            </View>
+          </View>
+        )}
 
         {/* Permission banner */}
         {permGranted === false && (
@@ -283,6 +304,7 @@ const s = StyleSheet.create({
   scroll:     { flex: 1 },
   body:       { padding: 16 },
 
+  permBannerWarn:{ flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: C.amberBg, borderRadius: 12, padding: 14, marginBottom: 20, borderWidth: 1, borderColor: "#F5D5A0" },
   permBanner: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: C.errorBg, borderRadius: 12, padding: 14, marginBottom: 20, borderWidth: 1, borderColor: "#F5C6C2" },
   permText:   { flex: 1 },
   permTitle:  { fontSize: 14, fontFamily: "PublicSans_700Bold", color: C.error, marginBottom: 2 },

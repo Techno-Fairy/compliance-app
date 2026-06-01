@@ -244,7 +244,7 @@ export default function ReportsScreen() {
       } else if (msg.includes("404")) {
         Alert.alert("No data yet", "No compliance data found for this business profile. Add some deadlines first.");
       } else {
-        Alert.alert("Generation failed", "Could not generate the report. Please check your connection and try again.");
+        Alert.alert("Generation failed", `${msg || "Unknown error"}. Please try again.`);
       }
     }
   };
