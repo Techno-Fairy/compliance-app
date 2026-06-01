@@ -1,14 +1,19 @@
 // mobile/app/business-profile.tsx
+//
+// Used for both CREATE (onboarding) and EDIT (from profile.tsx).
+// When navigated to with `edit=true` params, fields are pre-populated
+// and the submit uses PATCH instead of POST.
+
 import { useState } from "react";
 import {
   View, Text, TextInput, Pressable,
   StyleSheet, ActivityIndicator, Alert, ScrollView,
   Switch, TouchableOpacity, Modal, FlatList,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
-import { useFonts, PublicSans_400Regular, PublicSans_600SemiBold, PublicSans_700Bold } from "@expo-google-fonts/public-sans";
 import { api } from "@/lib/api";
+import { useQueryClient } from "@tanstack/react-query";
 
 type CompanyType = "sole_trader" | "pty_ltd" | "partnership" | "ngo";
 
@@ -36,36 +41,60 @@ const C = {
 };
 
 export default function BusinessProfileScreen() {
-  const [businessName, setBusinessName] = useState("");
-  const [companyType, setCompanyType] = useState<CompanyType>("pty_ltd");
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [cipaNumber, setCipaNumber] = useState("");
-  const [bursTin, setBursTin] = useState("");
-  const [vatRegistered, setVatRegistered] = useState(false);
-  const [vatFilingMonthly, setVatFilingMonthly] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const params = useLocalSearchParams<{
+    edit?:               string;
+    business_name?:      string;
+    company_type?:       string;
+    cipa_number?:        string;
+    burs_tin?:           string;
+    vat_registered?:     string;
+    vat_filing_monthly?: string;
+  }>();
 
-  const [fontsLoaded] = useFonts({ PublicSans_400Regular, PublicSans_600SemiBold, PublicSans_700Bold });
-  if (!fontsLoaded) return <View style={s.loading}><ActivityIndicator size="large" color={C.tint} /></View>;
+  const isEditMode = params.edit === "true";
+  const qc = useQueryClient();
+
+  const [businessName,     setBusinessName]     = useState(params.business_name      ?? "");
+  const [companyType,      setCompanyType]      = useState<CompanyType>((params.company_type as CompanyType) ?? "pty_ltd");
+  const [dropdownOpen,     setDropdownOpen]     = useState(false);
+  const [cipaNumber,       setCipaNumber]       = useState(params.cipa_number        ?? "");
+  const [bursTin,          setBursTin]          = useState(params.burs_tin           ?? "");
+  const [vatRegistered,    setVatRegistered]    = useState(params.vat_registered     === "true");
+  const [vatFilingMonthly, setVatFilingMonthly] = useState(params.vat_filing_monthly !== "false");
+  const [loading,          setLoading]          = useState(false);
 
   const handleSubmit = async () => {
     if (!businessName.trim()) return Alert.alert("Validation", "Business name is required.");
     setLoading(true);
+    const payload = {
+      business_name:      businessName.trim(),
+      company_type:       companyType,
+      cipa_number:        cipaNumber.trim()  || null,
+      burs_tin:           bursTin.trim()     || null,
+      vat_registered:     vatRegistered,
+      vat_filing_monthly: vatFilingMonthly,
+    };
     try {
-      await api.post("/business/profile", {
-        business_name: businessName.trim(), company_type: companyType,
-        cipa_number: cipaNumber.trim() || null, burs_tin: bursTin.trim() || null,
-        vat_registered: vatRegistered, vat_filing_monthly: vatFilingMonthly,
-      });
-      router.replace("/(tabs)");
+      if (isEditMode) {
+        await api.patch("/business/profile", payload);
+        // Invalidate cache so profile.tsx shows fresh data
+        await qc.invalidateQueries({ queryKey: ["business-profile"] });
+        Alert.alert("Saved", "Your business profile has been updated.");
+        router.back();
+      } else {
+        await api.post("/business/profile", payload);
+        router.replace("/(tabs)");
+      }
     } catch (err: any) {
-      if (err?.response?.status === 409) {
+      if (!isEditMode && err?.response?.status === 409) {
         Alert.alert("Info", "Business profile already exists. Taking you to the dashboard.");
         router.replace("/(tabs)");
       } else {
-        Alert.alert("Error", err?.response?.data?.detail?.message ?? "Failed to create profile. Please try again.");
+        Alert.alert("Error", err?.response?.data?.detail?.message ?? "Failed to save profile. Please try again.");
       }
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -73,7 +102,13 @@ export default function BusinessProfileScreen() {
       {/* Top bar */}
       <View style={s.topBar}>
         <View style={s.topBarLeft}>
-          <MaterialIcons name="menu" size={22} color={C.primary} />
+          {isEditMode ? (
+            <TouchableOpacity onPress={() => router.back()} hitSlop={8}>
+              <MaterialIcons name="arrow-back" size={22} color={C.primary} />
+            </TouchableOpacity>
+          ) : (
+            <MaterialIcons name="menu" size={22} color={C.primary} />
+          )}
           <Text style={s.appTitle}>CompliancePro Botswana</Text>
         </View>
         <View style={s.profileAvatar}>
@@ -82,22 +117,26 @@ export default function BusinessProfileScreen() {
       </View>
 
       <ScrollView style={s.scroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-        {/* Step indicator */}
-        <View style={s.stepWrap}>
-          <View style={s.stepRow}>
-            <Text style={s.stepLabel}>Step 2 of 4</Text>
-            <Text style={s.stepSub}>Business Core Details</Text>
+        {/* Step indicator — only shown during onboarding */}
+        {!isEditMode && (
+          <View style={s.stepWrap}>
+            <View style={s.stepRow}>
+              <Text style={s.stepLabel}>Step 2 of 4</Text>
+              <Text style={s.stepSub}>Business Core Details</Text>
+            </View>
+            <View style={s.progressBg}>
+              <View style={[s.progressFill, { width: "50%" }]} />
+            </View>
           </View>
-          <View style={s.progressBg}>
-            <View style={[s.progressFill, { width: "50%" }]} />
-          </View>
-        </View>
+        )}
 
         {/* Header */}
         <View style={s.headerSection}>
-          <Text style={s.title}>Business Profile</Text>
+          <Text style={s.title}>{isEditMode ? "Edit Profile" : "Business Profile"}</Text>
           <Text style={s.sub}>
-            Provide your registered company information to synchronize with BURS and CIPA systems.
+            {isEditMode
+              ? "Update your registered company information."
+              : "Provide your registered company information to synchronize with BURS and CIPA systems."}
           </Text>
         </View>
 
@@ -214,11 +253,14 @@ export default function BusinessProfileScreen() {
 
           {/* Actions */}
           <Pressable style={[s.submitBtn, loading && s.disabled]} onPress={handleSubmit} disabled={loading}>
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.submitText}>Save and Continue</Text>}
+            {loading
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={s.submitText}>{isEditMode ? "Save Changes" : "Save and Continue"}</Text>
+            }
           </Pressable>
 
           <TouchableOpacity style={s.backBtn} onPress={() => router.back()} disabled={loading}>
-            <Text style={s.backText}>Back to Overview</Text>
+            <Text style={s.backText}>{isEditMode ? "Cancel" : "Back to Overview"}</Text>
           </TouchableOpacity>
         </View>
 
@@ -242,30 +284,21 @@ export default function BusinessProfileScreen() {
 const s = StyleSheet.create({
   loading:       { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#f3faff" },
   root:          { flex: 1, backgroundColor: "#f3faff" },
-
-  // Top bar
   topBar:        { flexDirection: "row", justifyContent: "space-between", alignItems: "center", height: 56, paddingHorizontal: 16, backgroundColor: "#dbf1fe", borderBottomWidth: 1, borderBottomColor: "#c5c6cf", paddingTop: 6 },
   topBarLeft:    { flexDirection: "row", alignItems: "center", gap: 12 },
   appTitle:      { fontSize: 16, fontFamily: "PublicSans_700Bold", color: "#000b25" },
   profileAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#d5ecf8", justifyContent: "center", alignItems: "center", borderWidth: 1, borderColor: "#c5c6cf" },
-
   scroll:        { flex: 1 },
   content:       { paddingHorizontal: 16, paddingBottom: 40 },
-
-  // Step
   stepWrap:      { marginTop: 20, marginBottom: 24 },
   stepRow:       { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
   stepLabel:     { fontSize: 12, fontFamily: "PublicSans_600SemiBold", color: "#4b5e87", letterSpacing: 0.4 },
   stepSub:       { fontSize: 12, fontFamily: "PublicSans_400Regular", color: "#44474e" },
   progressBg:    { height: 4, backgroundColor: "#cfe6f2", borderRadius: 4, overflow: "hidden" },
   progressFill:  { height: "100%", backgroundColor: "#2a6b2c", borderRadius: 4 },
-
-  // Header
-  headerSection: { marginBottom: 24 },
+  headerSection: { marginBottom: 24, marginTop: 20 },
   title:         { fontSize: 32, fontFamily: "PublicSans_700Bold", color: "#000b25", marginBottom: 6, letterSpacing: -0.64 },
   sub:           { fontSize: 15, fontFamily: "PublicSans_400Regular", color: "#44474e", lineHeight: 22 },
-
-  // Form
   form:          { gap: 20 },
   field:         { gap: 6 },
   label:         { fontSize: 12, fontFamily: "PublicSans_600SemiBold", letterSpacing: 0.4, color: "#071e27", marginLeft: 2 },
@@ -274,11 +307,6 @@ const s = StyleSheet.create({
   inputIconField: { flex: 1, paddingVertical: 13, paddingHorizontal: 16, fontSize: 15, fontFamily: "PublicSans_400Regular", color: "#071e27" },
   hint:          { fontSize: 11, fontFamily: "PublicSans_400Regular", color: "#44474e", marginLeft: 2 },
   verified:      { fontSize: 11, fontFamily: "PublicSans_600SemiBold", color: "#2a6b2c", marginLeft: 2 },
-  pickerWrap:    { backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#c5c6cf", borderRadius: 12, overflow: "hidden", position: "relative" },
-  picker:        { height: 50, width: "100%" },
-  pickerArrow:   { position: "absolute", right: 14, top: "50%", marginTop: -10, pointerEvents: "none" },
-
-  // Custom dropdown
   dropdownBtn:        { backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#c5c6cf", borderRadius: 12, paddingVertical: 13, paddingHorizontal: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   dropdownBtnText:    { fontSize: 15, fontFamily: "PublicSans_400Regular", color: "#071e27", flex: 1, marginRight: 8 },
   modalOverlay:       { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", alignItems: "center", padding: 24 },
@@ -289,27 +317,19 @@ const s = StyleSheet.create({
   modalOptionText:    { fontSize: 15, fontFamily: "PublicSans_400Regular", color: "#071e27", flex: 1, marginRight: 8 },
   modalOptionTextSelected: { fontFamily: "PublicSans_600SemiBold", color: "#2a6b2c" },
   modalDivider:       { height: 1, backgroundColor: "#f0f0f0", marginHorizontal: 16 },
-
-  // Toggle card
   toggleCard:    { backgroundColor: "#e6f6ff", borderWidth: 1, borderColor: "#c5c6cf", borderRadius: 14, padding: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   toggleText:    { flex: 1, marginRight: 12 },
   toggleTitle:   { fontSize: 16, fontFamily: "PublicSans_600SemiBold", color: "#000b25", marginBottom: 2 },
   toggleSub:     { fontSize: 12, fontFamily: "PublicSans_400Regular", color: "#44474e" },
-
-  // Tip card
   tipCard:       { backgroundColor: "#dbf1fe", borderLeftWidth: 4, borderLeftColor: "#2a6b2c", borderRadius: 10, padding: 14, flexDirection: "row", gap: 12, alignItems: "flex-start" },
   tipTextWrap:   { flex: 1, gap: 4 },
   tipTitle:      { fontSize: 12, fontFamily: "PublicSans_700Bold", color: "#000b25", letterSpacing: 0.4 },
   tipBody:       { fontSize: 12, fontFamily: "PublicSans_400Regular", color: "#44474e", lineHeight: 17 },
-
-  // Actions
   submitBtn:     { backgroundColor: "#000b25", borderRadius: 12, paddingVertical: 16, alignItems: "center", marginTop: 4, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 },
   disabled:      { opacity: 0.6 },
   submitText:    { fontSize: 16, fontFamily: "PublicSans_700Bold", color: "#ffffff" },
   backBtn:       { borderWidth: 1, borderColor: "#c5c6cf", borderRadius: 12, paddingVertical: 13, alignItems: "center", backgroundColor: "transparent" },
   backText:      { fontSize: 14, fontFamily: "PublicSans_600SemiBold", color: "#4b5e87" },
-
-  // Trust
   trust:         { marginTop: 32, alignItems: "center", opacity: 0.55 },
   trustRow:      { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
   trustText:     { fontSize: 11, fontFamily: "PublicSans_400Regular", color: "#44474e" },
