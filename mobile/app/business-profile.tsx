@@ -11,6 +11,7 @@ import {
   Switch, TouchableOpacity, Modal, FlatList,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { api } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
@@ -98,7 +99,7 @@ export default function BusinessProfileScreen() {
   };
 
   return (
-    <View style={s.root}>
+    <SafeAreaView style={s.root} edges={["top"]}>
       {/* Top bar */}
       <View style={s.topBar}>
         <View style={s.topBarLeft}>
@@ -111,9 +112,13 @@ export default function BusinessProfileScreen() {
           )}
           <Text style={s.appTitle}>CompliancePro Botswana</Text>
         </View>
-        <View style={s.profileAvatar}>
+        <Pressable
+          onPress={() => router.push("/profile")}
+          style={({ pressed }) => [s.profileAvatar, pressed && { opacity: 0.7 }]}
+          hitSlop={8}
+        >
           <MaterialIcons name="person" size={18} color={C.primary} />
-        </View>
+        </Pressable>
       </View>
 
       <ScrollView style={s.scroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
@@ -277,14 +282,14 @@ export default function BusinessProfileScreen() {
           </View>
         </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
   loading:       { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#f3faff" },
   root:          { flex: 1, backgroundColor: "#f3faff" },
-  topBar:        { flexDirection: "row", justifyContent: "space-between", alignItems: "center", height: 56, paddingHorizontal: 16, backgroundColor: "#dbf1fe", borderBottomWidth: 1, borderBottomColor: "#c5c6cf", paddingTop: 6 },
+  topBar:        { flexDirection: "row", justifyContent: "space-between", alignItems: "center", height: 56, paddingHorizontal: 16, backgroundColor: "#dbf1fe", borderBottomWidth: 1, borderBottomColor: "#c5c6cf" },
   topBarLeft:    { flexDirection: "row", alignItems: "center", gap: 12 },
   appTitle:      { fontSize: 16, fontFamily: "PublicSans_700Bold", color: "#000b25" },
   profileAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#d5ecf8", justifyContent: "center", alignItems: "center", borderWidth: 1, borderColor: "#c5c6cf" },

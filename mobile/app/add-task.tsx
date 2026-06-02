@@ -17,6 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useCreateCustomDeadline } from "@/hooks/useDeadlines";
+import { DatePickerField } from "@/components/DatePickerField";
 import { DEADLINE_CATEGORIES } from "@/constants";
 import type { DeadlineCategory } from "@/constants";
 
@@ -66,16 +67,7 @@ export default function AddTaskScreen() {
   const validate = (): boolean => {
     const e: typeof errors = {};
     if (!name.trim()) e.name = "Task name is required.";
-    if (!dueDate.trim()) {
-      e.dueDate = "Due date is required.";
-    } else {
-      const parsed = new Date(dueDate);
-      if (isNaN(parsed.getTime())) {
-        e.dueDate = "Enter a valid date (YYYY-MM-DD).";
-      } else if (parsed <= new Date()) {
-        e.dueDate = "Due date must be in the future.";
-      }
-    }
+    if (!dueDate.trim()) e.dueDate = "Due date is required.";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -142,19 +134,13 @@ export default function AddTaskScreen() {
         </View>
 
         {/* Due date */}
-        <View style={s.field}>
-          <Text style={s.label}>DUE DATE *</Text>
-          <TextInput
-            style={[s.input, errors.dueDate && s.inputError]}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor={C.muted}
-            value={dueDate}
-            onChangeText={(v) => { setDueDate(v); if (errors.dueDate) setErrors({ ...errors, dueDate: undefined }); }}
-            maxLength={10}
-            keyboardType="numbers-and-punctuation"
-          />
-          {errors.dueDate && <Text style={s.errorText}>{errors.dueDate}</Text>}
-        </View>
+        <DatePickerField
+          label="Due Date"
+          value={dueDate}
+          onChange={(v) => { setDueDate(v); if (errors.dueDate) setErrors({ ...errors, dueDate: undefined }); }}
+          error={errors.dueDate}
+          minDate={new Date()}
+        />
 
         {/* Notes */}
         <View style={s.field}>
