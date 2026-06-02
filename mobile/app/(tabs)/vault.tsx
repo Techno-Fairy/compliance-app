@@ -21,6 +21,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { differenceInDays, format, parseISO } from "date-fns";
 import { useDocuments, useDeleteDocument, useUploadDocument, useGetDocumentDownloadUrl } from "@/hooks/useDocuments";
+import { DatePickerField } from "@/components/DatePickerField";
 import type { Document } from "@/types";
 
 const C = {
@@ -139,12 +140,14 @@ function UploadModal({ visible, onClose, onUpload }: {
               ))}
             </ScrollView>
           </View>
-          <View style={um.section}>
-            <Text style={um.label}>EXPIRY DATE (OPTIONAL)</Text>
-            <TextInput style={um.input} placeholder="YYYY-MM-DD" placeholderTextColor={C.muted}
-              value={expiryDate} onChangeText={setExpiryDate} maxLength={10} />
-            <Text style={um.hint}>Enter for tax clearance certificates and trade licences.</Text>
-          </View>
+          <DatePickerField
+            label="Expiry Date"
+            value={expiryDate}
+            onChange={setExpiryDate}
+            placeholder="No expiry date"
+            optional
+          />
+          <Text style={um.hint}>Set for tax clearance certificates and trade licences.</Text>
         </ScrollView>
         <View style={um.footer}>
           <Pressable style={[um.confirmBtn, !picked && um.confirmBtnDisabled]} onPress={handleConfirm} disabled={!picked}>
