@@ -1,5 +1,5 @@
 // mobile/app/(tabs)/reports.tsx
-// FE-17: Reports — period picker, generate button, history list, share
+// FE-17: Reports — period picker, generate compliance PDF, share
 
 import React, { useState } from "react";
 import {
@@ -13,14 +13,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
-import { format, parseISO } from "date-fns";
 import { TopBar } from "@/components/ui/TopBar";
 import {
-  useReportHistory,
   useGenerateReport,
   shareReport,
-  type ReportRecord,
+  buildPeriodLabel,
   type GenerateReportPayload,
+  type GeneratedReport,
 } from "@/hooks/useReports";
 
 const C = {
@@ -46,7 +45,7 @@ const C = {
 
 type ReportType = "monthly" | "quarterly" | "annual";
 
-const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const MONTHS   = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const QUARTERS = ["Q1 (Jan–Mar)","Q2 (Apr–Jun)","Q3 (Jul–Sep)","Q4 (Oct–Dec)"];
 
 const THIS_YEAR  = new Date().getFullYear();
@@ -61,14 +60,14 @@ function PeriodPicker({
   quarter, setQuarter,
 }: {
   reportType: ReportType; setReportType: (t: ReportType) => void;
-  year: number; setYear: (y: number) => void;
-  month: number; setMonth: (m: number) => void;
-  quarter: number; setQuarter: (q: number) => void;
+  year: number;           setYear:       (y: number) => void;
+  month: number;          setMonth:      (m: number) => void;
+  quarter: number;        setQuarter:    (q: number) => void;
 }) {
   const types: { id: ReportType; label: string; icon: string; desc: string }[] = [
-    { id: "monthly",   label: "Monthly",   icon: "calendar-today",  desc: "Single month summary"   },
-    { id: "quarterly", label: "Quarterly", icon: "date-range",      desc: "3-month overview"       },
-    { id: "annual",    label: "Annual",    icon: "calendar-month",  desc: "Full financial year"    },
+    { id: "monthly",   label: "Monthly",   icon: "calendar-today", desc: "Single month summary" },
+    { id: "quarterly", label: "Quarterly", icon: "date-range",     desc: "3-month overview"     },
+    { id: "annual",    label: "Annual",    icon: "calendar-month", desc: "Full financial year"  },
   ];
 
   return (
@@ -83,12 +82,11 @@ function PeriodPicker({
           >
             <MaterialIcons name={t.icon as any} size={22} color={reportType === t.id ? "#fff" : C.muted} />
             <Text style={[pp.typeLabel, reportType === t.id && pp.typeLabelActive]}>{t.label}</Text>
-            <Text style={[pp.typeDesc, reportType === t.id && { color: "rgba(255,255,255,0.7)" }]}>{t.desc}</Text>
+            <Text style={[pp.typeDesc,  reportType === t.id && { color: "rgba(255,255,255,0.7)" }]}>{t.desc}</Text>
           </Pressable>
         ))}
       </View>
 
-      {/* Year selector */}
       <Text style={pp.sectionLabel}>YEAR</Text>
       <View style={pp.chipRow}>
         {YEARS.map((y) => (
@@ -102,13 +100,12 @@ function PeriodPicker({
         ))}
       </View>
 
-      {/* Month selector (monthly only) */}
       {reportType === "monthly" && (
         <>
           <Text style={pp.sectionLabel}>MONTH</Text>
           <View style={pp.monthGrid}>
             {MONTHS.map((m, i) => {
-              const mNum = i + 1;
+              const mNum    = i + 1;
               const disabled = year === THIS_YEAR && mNum > THIS_MONTH;
               return (
                 <Pressable
@@ -117,7 +114,9 @@ function PeriodPicker({
                   onPress={() => !disabled && setMonth(mNum)}
                   disabled={disabled}
                 >
-                  <Text style={[pp.chipText, month === mNum && pp.chipTextActive, disabled && { color: C.border }]}>{m}</Text>
+                  <Text style={[pp.chipText, month === mNum && pp.chipTextActive, disabled && { color: C.border }]}>
+                    {m}
+                  </Text>
                 </Pressable>
               );
             })}
@@ -125,7 +124,6 @@ function PeriodPicker({
         </>
       )}
 
-      {/* Quarter selector */}
       {reportType === "quarterly" && (
         <>
           <Text style={pp.sectionLabel}>QUARTER</Text>
@@ -147,75 +145,71 @@ function PeriodPicker({
 }
 
 const pp = StyleSheet.create({
-  wrap:          { backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border, padding: 16, marginBottom: 16 },
-  sectionLabel:  { fontSize: 10, fontFamily: "PublicSans_700Bold", color: C.muted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 10, marginTop: 14 },
-  typeRow:       { flexDirection: "row", gap: 8 },
-  typeCard:      { flex: 1, backgroundColor: C.bg, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 12, alignItems: "center", gap: 4 },
-  typeCardActive:{ backgroundColor: C.primary, borderColor: C.primary },
-  typeLabel:     { fontSize: 13, fontFamily: "PublicSans_700Bold", color: C.mid },
+  wrap:           { backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border, padding: 16, marginBottom: 16 },
+  sectionLabel:   { fontSize: 10, fontFamily: "PublicSans_700Bold", color: C.muted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 10, marginTop: 14 },
+  typeRow:        { flexDirection: "row", gap: 8 },
+  typeCard:       { flex: 1, backgroundColor: C.bg, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 12, alignItems: "center", gap: 4 },
+  typeCardActive: { backgroundColor: C.primary, borderColor: C.primary },
+  typeLabel:      { fontSize: 13, fontFamily: "PublicSans_700Bold", color: C.mid },
   typeLabelActive:{ color: "#fff" },
-  typeDesc:      { fontSize: 10, fontFamily: "PublicSans_400Regular", color: C.muted, textAlign: "center" },
-  chipRow:       { flexDirection: "row", gap: 8, flexWrap: "wrap" },
-  chip:          { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: C.border, backgroundColor: C.bg },
-  chipActive:    { backgroundColor: C.primary, borderColor: C.primary },
-  chipDisabled:  { opacity: 0.4 },
-  chipText:      { fontSize: 12, fontFamily: "PublicSans_600SemiBold", color: C.muted },
-  chipTextActive:{ color: "#fff" },
-  monthGrid:     { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  monthChip:     { width: "22%", paddingVertical: 9, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.bg, alignItems: "center" },
+  typeDesc:       { fontSize: 10, fontFamily: "PublicSans_400Regular", color: C.muted, textAlign: "center" },
+  chipRow:        { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  chip:           { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: C.border, backgroundColor: C.bg },
+  chipActive:     { backgroundColor: C.primary, borderColor: C.primary },
+  chipDisabled:   { opacity: 0.4 },
+  chipText:       { fontSize: 12, fontFamily: "PublicSans_600SemiBold", color: C.muted },
+  chipTextActive: { color: "#fff" },
+  monthGrid:      { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  monthChip:      { width: "22%", paddingVertical: 9, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.bg, alignItems: "center" },
 });
 
-// ── Report history row ────────────────────────────────────────────────────────
-function ReportRow({ report }: { report: ReportRecord }) {
+// ── Last Generated Card ───────────────────────────────────────────────────────
+function GeneratedCard({ report, onShare }: { report: GeneratedReport; onShare: () => void }) {
   const [sharing, setSharing] = useState(false);
 
   const handleShare = async () => {
     setSharing(true);
     try {
-      await shareReport(report);
-    } catch (err: any) {
-      Alert.alert("Share failed", err?.message ?? "Could not share the report.");
+      await onShare();
     } finally {
       setSharing(false);
     }
   };
 
-  const sizeKb = Math.round(report.file_size_bytes / 1024);
-
   return (
-    <View style={rr.row}>
-      <View style={rr.iconWrap}>
-        <MaterialIcons name="picture-as-pdf" size={24} color={C.error} />
+    <View style={gc.card}>
+      <View style={gc.iconWrap}>
+        <MaterialIcons name="check-circle" size={22} color={C.secondary} />
       </View>
-      <View style={rr.info}>
-        <Text style={rr.label}>{report.period_label}</Text>
-        <Text style={rr.meta}>
-          {report.report_type.charAt(0).toUpperCase() + report.report_type.slice(1)}
-          {"  ·  "}{sizeKb} KB
-          {"  ·  "}{format(parseISO(report.generated_at), "d MMM yyyy")}
-        </Text>
+      <View style={gc.info}>
+        <Text style={gc.label}>Report ready</Text>
+        <Text style={gc.period}>{report.period_label}</Text>
       </View>
       <Pressable
-        style={({ pressed }) => [rr.shareBtn, pressed && { opacity: 0.7 }]}
+        style={({ pressed }) => [gc.shareBtn, pressed && { opacity: 0.7 }]}
         onPress={handleShare}
         disabled={sharing}
       >
         {sharing
           ? <ActivityIndicator size="small" color={C.burs} />
-          : <MaterialIcons name="ios-share" size={20} color={C.burs} />
+          : <>
+              <MaterialIcons name="ios-share" size={18} color="#fff" />
+              <Text style={gc.shareBtnText}>Share</Text>
+            </>
         }
       </Pressable>
     </View>
   );
 }
 
-const rr = StyleSheet.create({
-  row:      { flexDirection: "row", alignItems: "center", backgroundColor: C.surface, borderRadius: 12, padding: 14, marginBottom: 10, gap: 12, borderWidth: 1, borderColor: C.border },
-  iconWrap: { width: 42, height: 42, borderRadius: 10, backgroundColor: C.errorBg, alignItems: "center", justifyContent: "center" },
+const gc = StyleSheet.create({
+  card:     { flexDirection: "row", alignItems: "center", backgroundColor: C.secondaryBg, borderRadius: 14, padding: 14, marginBottom: 20, gap: 12, borderWidth: 1, borderColor: C.secondary + "44" },
+  iconWrap: { width: 40, height: 40, borderRadius: 10, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" },
   info:     { flex: 1 },
-  label:    { fontSize: 14, fontFamily: "PublicSans_700Bold", color: C.primary, marginBottom: 3 },
-  meta:     { fontSize: 11, fontFamily: "PublicSans_400Regular", color: C.muted },
-  shareBtn: { width: 38, height: 38, borderRadius: 9, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center" },
+  label:    { fontSize: 11, fontFamily: "PublicSans_600SemiBold", color: C.secondaryText, marginBottom: 2 },
+  period:   { fontSize: 15, fontFamily: "PublicSans_700Bold", color: C.secondary },
+  shareBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: C.primary, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10 },
+  shareBtnText: { color: "#fff", fontSize: 13, fontFamily: "PublicSans_700Bold" },
 });
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
@@ -224,38 +218,45 @@ export default function ReportsScreen() {
   const [year,       setYear]       = useState(THIS_YEAR);
   const [month,      setMonth]      = useState(THIS_MONTH);
   const [quarter,    setQuarter]    = useState(Math.ceil(THIS_MONTH / 3));
+  const [lastReport, setLastReport] = useState<GeneratedReport | null>(null);
 
-  const { data: history, isLoading: histLoading, refetch } = useReportHistory();
-  const { mutateAsync: generate, isPending: generating }   = useGenerateReport();
+  const { mutateAsync: generate, isPending: generating } = useGenerateReport();
+
+  const payload: GenerateReportPayload = {
+    report_type: reportType,
+    year,
+    ...(reportType === "monthly"   ? { month }   : {}),
+    ...(reportType === "quarterly" ? { quarter } : {}),
+  };
+
+  const periodLabel = buildPeriodLabel(payload);
 
   const handleGenerate = async () => {
-    const payload: GenerateReportPayload = {
-      report_type: reportType,
-      year,
-      ...(reportType === "monthly"   ? { month }   : {}),
-      ...(reportType === "quarterly" ? { quarter } : {}),
-    };
-
     try {
       const report = await generate(payload);
-      Alert.alert(
-        "Report Ready",
-        `${report.period_label} report generated.`,
-        [
-          { text: "Share", onPress: () => shareReport(report).catch(() => {}) },
-          { text: "OK" },
-        ]
-      );
-    } catch {
-      Alert.alert("Generation failed", "Could not generate the report. Please try again.");
+      setLastReport(report);
+      // Auto-trigger share sheet immediately after generation
+      shareReport(report).catch(() => {});
+    } catch (err: any) {
+      const msg: string = err?.message ?? "";
+      if (msg.includes("401") || msg.includes("403")) {
+        Alert.alert("Session expired", "Please log out and log back in.");
+      } else if (msg.includes("404")) {
+        Alert.alert("No data yet", "No compliance data found for this business profile. Add some deadlines first.");
+      } else {
+        Alert.alert("Generation failed", `${msg || "Unknown error"}. Please try again.`);
+      }
     }
   };
 
-  const periodLabel = (() => {
-    if (reportType === "monthly")   return `${MONTHS[month - 1]} ${year}`;
-    if (reportType === "quarterly") return `${QUARTERS[quarter - 1]} ${year}`;
-    return `Full Year ${year}`;
-  })();
+  const handleShare = async () => {
+    if (!lastReport) return;
+    try {
+      await shareReport(lastReport);
+    } catch (err: any) {
+      Alert.alert("Share failed", err?.message ?? "Could not share the report.");
+    }
+  };
 
   return (
     <SafeAreaView style={s.safe} edges={["top"]}>
@@ -264,27 +265,35 @@ export default function ReportsScreen() {
       <ScrollView style={s.scroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         <View style={s.pageHeader}>
           <Text style={s.pageTitle}>Reports</Text>
-          <Text style={s.pageSub}>Generate and download compliance reports in PDF format.</Text>
+          <Text style={s.pageSub}>
+            Generate a compliance summary PDF for any period. Includes all deadlines,
+            health score, and evidence uploaded to your Locker.
+          </Text>
         </View>
+
+        {/* Last generated report */}
+        {lastReport && (
+          <GeneratedCard report={lastReport} onShare={handleShare} />
+        )}
 
         {/* Period picker */}
         <PeriodPicker
           reportType={reportType} setReportType={setReportType}
-          year={year} setYear={setYear}
-          month={month} setMonth={setMonth}
-          quarter={quarter} setQuarter={setQuarter}
+          year={year}             setYear={setYear}
+          month={month}           setMonth={setMonth}
+          quarter={quarter}       setQuarter={setQuarter}
         />
 
         {/* Generate button */}
         <Pressable
-          style={({ pressed }) => [s.generateBtn, pressed && { opacity: 0.85 }, generating && { opacity: 0.6 }]}
+          style={({ pressed }) => [s.generateBtn, (pressed || generating) && { opacity: 0.75 }]}
           onPress={handleGenerate}
           disabled={generating}
         >
           {generating ? (
             <>
               <ActivityIndicator color="#fff" size="small" />
-              <Text style={s.generateBtnText}>Generating…</Text>
+              <Text style={s.generateBtnText}>Building PDF…</Text>
             </>
           ) : (
             <>
@@ -295,24 +304,25 @@ export default function ReportsScreen() {
         </Pressable>
 
         <Text style={s.generateHint}>
-          Reports include all deadlines, compliance scores, and penalties for the selected period.
+          The PDF is generated on demand and opened in your device's share sheet.
+          You can save it to Files, email it, or attach it to a tender application.
         </Text>
 
-        {/* History */}
-        <View style={s.historyHeader}>
-          <Text style={s.sectionTitle}>Generated Reports</Text>
-          {histLoading && <ActivityIndicator size="small" color={C.burs} />}
+        {/* What's included info box */}
+        <View style={s.infoBox}>
+          <Text style={s.infoTitle}>What's included</Text>
+          {[
+            { icon: "health-and-safety", text: "Compliance health score for the period" },
+            { icon: "event",             text: "All deadlines — status, due date, category" },
+            { icon: "folder-open",       text: "Evidence Locker document inventory" },
+            { icon: "warning",           text: "Overdue count and penalty summary" },
+          ].map((item) => (
+            <View key={item.text} style={s.infoRow}>
+              <MaterialIcons name={item.icon as any} size={16} color={C.burs} />
+              <Text style={s.infoText}>{item.text}</Text>
+            </View>
+          ))}
         </View>
-
-        {!histLoading && (history?.length ?? 0) === 0 && (
-          <View style={s.emptyBox}>
-            <MaterialIcons name="description" size={44} color={C.border} />
-            <Text style={s.emptyTitle}>No reports yet</Text>
-            <Text style={s.emptyDesc}>Generate your first report above.</Text>
-          </View>
-        )}
-
-        {history?.map((r) => <ReportRow key={r.id} report={r} />)}
 
         <View style={{ height: 80 }} />
       </ScrollView>
@@ -321,22 +331,20 @@ export default function ReportsScreen() {
 }
 
 const s = StyleSheet.create({
-  safe:        { flex: 1, backgroundColor: C.bg },
-  scroll:      { flex: 1 },
-  content:     { paddingHorizontal: 16, paddingBottom: 24 },
+  safe:         { flex: 1, backgroundColor: C.bg },
+  scroll:       { flex: 1 },
+  content:      { paddingHorizontal: 16, paddingBottom: 24 },
 
-  pageHeader:  { paddingTop: 20, paddingBottom: 20 },
-  pageTitle:   { fontSize: 26, fontFamily: "PublicSans_700Bold", color: C.primary, marginBottom: 6 },
-  pageSub:     { fontSize: 14, fontFamily: "PublicSans_400Regular", color: C.muted, lineHeight: 20 },
+  pageHeader:   { paddingTop: 20, paddingBottom: 20 },
+  pageTitle:    { fontSize: 26, fontFamily: "PublicSans_700Bold", color: C.primary, marginBottom: 6 },
+  pageSub:      { fontSize: 14, fontFamily: "PublicSans_400Regular", color: C.muted, lineHeight: 20 },
 
-  generateBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: C.primary, borderRadius: 14, paddingVertical: 16, marginBottom: 10 },
+  generateBtn:     { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: C.primary, borderRadius: 14, paddingVertical: 16, marginBottom: 10 },
   generateBtnText: { color: "#fff", fontFamily: "PublicSans_700Bold", fontSize: 15 },
-  generateHint:{ fontSize: 12, fontFamily: "PublicSans_400Regular", color: C.muted, textAlign: "center", lineHeight: 17, marginBottom: 24 },
+  generateHint:    { fontSize: 12, fontFamily: "PublicSans_400Regular", color: C.muted, textAlign: "center", lineHeight: 17, marginBottom: 24 },
 
-  historyHeader:{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
-  sectionTitle: { fontSize: 17, fontFamily: "PublicSans_700Bold", color: C.primary },
-
-  emptyBox:    { alignItems: "center", paddingVertical: 40, gap: 10 },
-  emptyTitle:  { fontSize: 16, fontFamily: "PublicSans_700Bold", color: C.primary },
-  emptyDesc:   { fontSize: 13, color: C.muted, textAlign: "center" },
+  infoBox:   { backgroundColor: C.bursBg, borderRadius: 14, padding: 16, gap: 12, borderWidth: 1, borderColor: C.borderSoft },
+  infoTitle: { fontSize: 13, fontFamily: "PublicSans_700Bold", color: C.primary, marginBottom: 4 },
+  infoRow:   { flexDirection: "row", alignItems: "center", gap: 10 },
+  infoText:  { fontSize: 13, fontFamily: "PublicSans_400Regular", color: C.mid, flex: 1 },
 });

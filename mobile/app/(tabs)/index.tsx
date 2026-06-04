@@ -371,10 +371,16 @@ function DeadlineCard({ item, onMarkComplete }: { item: Deadline; onMarkComplete
         {item.penalty_info && <Text style={ss.cardPenalty} numberOfLines={1}>{item.penalty_info}</Text>}
         {!isComplete && (
           <View style={ss.cardActions}>
-            <Pressable style={({ pressed }) => [ss.btnPrimary, pressed && { opacity: 0.75 }]} onPress={() => onMarkComplete(item.id)}>
+            <Pressable
+              style={({ pressed }) => [ss.btnPrimary, pressed && { opacity: 0.75 }]}
+              onPress={() => onMarkComplete(item.id)}
+            >
               <Text style={ss.btnPrimaryText}>File Now</Text>
             </Pressable>
-            <Pressable style={({ pressed }) => [ss.btnOutline, pressed && { opacity: 0.75 }]} onPress={() => router.push(`/deadline/${item.id}` as any)}>
+            <Pressable
+              style={({ pressed }) => [ss.btnOutline, pressed && { opacity: 0.75 }]}
+              onPress={() => router.push(`/deadline/${item.id}` as any)}
+            >
               <Text style={ss.btnOutlineText}>View Requirements</Text>
             </Pressable>
           </View>
@@ -605,20 +611,22 @@ export default function DashboardScreen() {
           </>
         )}
 
-        {/* Compliance tip */}
+        {/* ── Compliance tip ───────────────────────────────────────────────── */}
         <View style={ss.tipCard}>
           <View style={ss.tipImgWrap}><View style={ss.tipImgPlaceholder} /></View>
           <View style={ss.tipBody}>
             <Text style={ss.tipEyebrow}>COMPLIANCE TIP</Text>
             <Text style={ss.tipTitle}>Did you know?</Text>
-            <Text style={ss.tipDesc}>Late CIPA filings incur a recurring monthly fee. File early to save BWP 500.</Text>
+            <Text style={ss.tipDesc}>
+              Late CIPA filings incur a recurring monthly fee. File early to save BWP 500.
+            </Text>
           </View>
         </View>
 
         <View style={{ height: 32 }} />
       </ScrollView>
 
-      {/* FAB */}
+      {/* ── FAB ─────────────────────────────────────────────────────────────── */}
       <Pressable style={ss.fab} onPress={() => router.push("/add-task" as any)}>
         <MaterialIcons name="add" size={26} color="#ffffff" />
       </Pressable>

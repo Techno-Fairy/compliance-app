@@ -27,15 +27,25 @@ export interface Deadline {
   notes?: string;
   recurrence?: string;
   days_remaining?: number;
+  fixed_penalty_bwp?: number;
+  monthly_interest_rate?: number;
+  estimated_outstanding_bwp?: number;
+  portal_url?: string;
 }
 
 export interface Document {
   id: number;
+  business_id: number;
+  deadline_id?: number | null;
   filename: string;
+  mime_type: string;
+  file_size_bytes: number;
   category: string;
-  expiry_date?: string;
+  expiry_date?: string | null;
   uploaded_at: string;
-  deadline_id?: number;
+  // Present only immediately after upload
+  download_url?: string;
+  download_url_expires_in_seconds?: number;
 }
 
 export interface TokenResponse {
@@ -57,4 +67,38 @@ export interface HealthScore {
   band: "green" | "amber" | "red";
   overdue_count: number;
   breakdown: HealthScoreBreakdown[];
+}
+
+export interface PenaltyBreakdownItem {
+  deadline_id: number;
+  name: string;
+  category: string;
+  days_overdue: number;
+  fixed_penalty_bwp: number;
+  interest_penalty_bwp: number;
+  total_penalty_bwp: number;
+  penalty_in_7_days_bwp: number;
+  estimated_outstanding_bwp: number | null;
+  is_minimum_estimate: boolean;
+}
+
+export interface PenaltyExposure {
+  total_exposure_bwp: number;
+  has_minimum_estimates: boolean;
+  breakdown: PenaltyBreakdownItem[];
+}
+
+export interface FilingHistoryEntry {
+  id: number;
+  business_id: number;
+  deadline_id?: number | null;
+  action: string;
+  description: string;
+  performed_by?: string | null;
+  created_at: string;
+  // Joined fields returned by the API (may be null if not applicable)
+  deadline_name?: string | null;
+  document_filename?: string | null;
+  notes?: string | null;
+  user_email?: string | null;
 }

@@ -1,7 +1,7 @@
 // mobile/components/ui/TopBar.tsx
 //
 // Shared top bar used across all tab screens.
-// The avatar is a pressable "person" icon that navigates to /business-profile.
+// The avatar is a pressable "person" icon that navigates to /profile (view screen).
 
 import { MaterialIcons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -38,9 +38,9 @@ export function TopBar({ showBack = false }: TopBarProps) {
         <Text style={s.appTitle}>CompliancePro Botswana</Text>
       </View>
 
-      {/* Profile avatar — tapping navigates to Business Profile */}
+      {/* Profile avatar — tapping navigates to /profile (read-only view) */}
       <Pressable
-        onPress={() => router.push("/business-profile")}
+        onPress={() => router.push("/profile")}
         style={({ pressed }) => [s.avatar, pressed && s.avatarPressed]}
         hitSlop={8}
         accessibilityRole="button"

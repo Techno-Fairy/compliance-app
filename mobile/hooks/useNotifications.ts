@@ -1,12 +1,13 @@
 // mobile/hooks/useNotifications.ts
 // FE-14: expo-notifications — permissions, device token registration, deep link routing
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import { Platform } from "react-native";
 import { router } from "expo-router";
 import { api } from "@/lib/api";
+import Constants from "expo-constants";
 
 // ── Notification handler (foreground) ────────────────────────────────────────
 Notifications.setNotificationHandler({
@@ -20,9 +21,24 @@ Notifications.setNotificationHandler({
 });
 
 // ── Permission + token registration ──────────────────────────────────────────
+// Returns the Expo push token, or null when push is unavailable:
+//   - simulator / emulator
+//   - Expo Go (SDK 53+ removed remote push from Expo Go; use a dev build)
+//   - user denied permission
+//   - no EAS projectId configured
+// Callers treat null as "push unavailable" — local prefs still work fine.
 export async function registerForPushNotifications(): Promise<string | null> {
   if (!Device.isDevice) {
     console.warn("Push notifications only work on physical devices.");
+    return null;
+  }
+
+  // Expo Go (SDK 53+) does not support remote push — detect and bail cleanly.
+  if (Constants.appOwnership === "expo") {
+    console.info(
+      "Running in Expo Go — remote push unavailable. " +
+      "Use a dev build (npx expo run:ios / run:android) for full push support."
+    );
     return null;
   }
 
@@ -50,8 +66,25 @@ export async function registerForPushNotifications(): Promise<string | null> {
     });
   }
 
-  const token = (await Notifications.getExpoPushTokenAsync()).data;
-  return token;
+  const projectId =
+    Constants.expoConfig?.extra?.eas?.projectId?.trim() ||
+    Constants.easConfig?.projectId?.trim();
+
+  if (!projectId) {
+    console.warn(
+      "No EAS projectId in app.json extra.eas.projectId — skipping push token. " +
+      "Add your EAS projectId to enable remote push notifications."
+    );
+    return null;
+  }
+
+  try {
+    const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+    return token;
+  } catch (e) {
+    console.warn("Failed to get push token:", e);
+    return null;
+  }
 }
 
 // ── Register token with backend ───────────────────────────────────────────────
@@ -67,8 +100,13 @@ export async function registerDeviceToken(token: string): Promise<void> {
 }
 
 // ── Deep-link routing from notification ──────────────────────────────────────
-function handleNotificationResponse(response: Notifications.NotificationResponse) {
-  const data = response.notification.request.content.data as Record<string, any>;
+function handleNotificationResponse(
+  response: Notifications.NotificationResponse
+) {
+  const data = response.notification.request.content.data as Record<
+    string,
+    any
+  >;
 
   if (data?.screen === "deadline" && data?.id) {
     router.push(`/deadline/${data.id}` as any);
@@ -79,29 +117,38 @@ function handleNotificationResponse(response: Notifications.NotificationResponse
   }
 }
 
-// ── Hook (mount once in _layout.tsx via <NotificationSetup />) ───────────────
+// ── Hook (mount once in _layout.tsx via <AppServices />) ─────────────────────
 export function useNotificationSetup() {
-  const responseListenerRef = useRef<Notifications.EventSubscription | null>(null);
-  const receivedListenerRef = useRef<Notifications.EventSubscription | null>(null);
+  const responseListenerRef = useRef<Notifications.EventSubscription | null>(
+    null
+  );
+  const receivedListenerRef = useRef<Notifications.EventSubscription | null>(
+    null
+  );
 
   useEffect(() => {
     // Register device and send token to backend
     registerForPushNotifications()
-      .then((token) => { if (token) registerDeviceToken(token); })
+      .then((token) => {
+        if (token) registerDeviceToken(token);
+      })
       .catch(console.error);
 
     // Foreground notification received
     receivedListenerRef.current = Notifications.addNotificationReceivedListener(
       (notification) => {
-        // Badge update already handled by setNotificationHandler
-        console.log("Notification received:", notification.request.content.title);
+        console.log(
+          "Notification received:",
+          notification.request.content.title
+        );
       }
     );
 
     // Tapped notification — deep link routing
-    responseListenerRef.current = Notifications.addNotificationResponseReceivedListener(
-      handleNotificationResponse
-    );
+    responseListenerRef.current =
+      Notifications.addNotificationResponseReceivedListener(
+        handleNotificationResponse
+      );
 
     // Handle notification that launched the app from killed state
     Notifications.getLastNotificationResponseAsync().then((response) => {
@@ -115,10 +162,10 @@ export function useNotificationSetup() {
   }, []);
 }
 
-// ── Notification preferences (stored on device + synced to backend) ───────────
+// ── Notification preferences (stored on device + synced to backend) ──────────
 export interface NotificationPrefs {
   deadline_reminders: boolean;
-  reminder_days_before: number;   // 1, 3, 7, 14
+  reminder_days_before: number; // 1, 3, 7, 14
   penalty_alerts: boolean;
   document_expiry: boolean;
   weekly_digest: boolean;
@@ -132,11 +179,15 @@ export const DEFAULT_PREFS: NotificationPrefs = {
   weekly_digest: false,
 };
 
-export async function saveNotificationPrefs(prefs: NotificationPrefs): Promise<void> {
+export async function saveNotificationPrefs(
+  prefs: NotificationPrefs
+): Promise<void> {
   await api.patch("/notifications/preferences", prefs);
 }
 
 export async function getNotificationPrefs(): Promise<NotificationPrefs> {
-  const { data } = await api.get<NotificationPrefs>("/notifications/preferences");
+  const { data } = await api.get<NotificationPrefs>(
+    "/notifications/preferences"
+  );
   return data;
 }

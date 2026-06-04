@@ -1,6 +1,12 @@
 // mobile/app/knowledge-base.tsx
 // FE-15: Knowledge Base — search, categories, article list, article detail
-// Navigated to from Settings. Article detail opens inline via state (no extra route needed).
+//
+// Data strategy:
+//   1. Call useKBCategories + useKBArticles (API hooks)
+//   2. If API succeeds → use server data
+//   3. If API errors or returns empty → fall back to STATIC_* content
+//   This means the screen works offline/before the backend is ready,
+//   and automatically shows live content once the API is implemented.
 
 import React, { useState, useMemo } from "react";
 import {
@@ -16,6 +22,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import {
+  useKBCategories,
+  useKBArticles,
   STATIC_CATEGORIES,
   STATIC_ARTICLES,
   type KBCategory,
@@ -45,16 +53,15 @@ const C = {
 };
 
 const CAT_COLORS: Record<string, { bg: string; text: string }> = {
-  burs:   { bg: C.bursBg,   text: C.burs   },
-  cipa:   { bg: C.cipaBg,   text: C.cipa   },
-  labour: { bg: C.labourBg, text: C.labour },
-  vat:    { bg: C.amberBg,  text: C.amber  },
+  burs:   { bg: C.bursBg,      text: C.burs      },
+  cipa:   { bg: C.cipaBg,      text: C.cipa      },
+  labour: { bg: C.labourBg,    text: C.labour    },
+  vat:    { bg: C.amberBg,     text: C.amber     },
   tips:   { bg: C.secondaryBg, text: C.secondary },
 };
 const catColor = (id: string) => CAT_COLORS[id] ?? { bg: C.borderSoft, text: C.mid };
 
 // ── Markdown-lite renderer ────────────────────────────────────────────────────
-// Renders headings, bold, bullets, and horizontal rules from article content
 function MarkdownBlock({ content }: { content: string }) {
   const lines = content.split("\n");
   return (
@@ -64,7 +71,6 @@ function MarkdownBlock({ content }: { content: string }) {
           return <Text key={i} style={md.h2}>{line.slice(3)}</Text>;
         }
         if (line.startsWith("| ")) {
-          // Simple table row — render as a row of text
           const cells = line.split("|").filter((c) => c.trim() && c.trim() !== "---");
           return (
             <View key={i} style={md.tableRow}>
@@ -93,7 +99,6 @@ function MarkdownBlock({ content }: { content: string }) {
 }
 
 function renderInline(text: string): React.ReactNode {
-  // Bold: **text**
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
   return parts.map((part, i) => {
     if (part.startsWith("**") && part.endsWith("**")) {
@@ -104,24 +109,31 @@ function renderInline(text: string): React.ReactNode {
 }
 
 const md = StyleSheet.create({
-  wrap:       { gap: 2 },
-  h2:         { fontSize: 16, fontFamily: "PublicSans_700Bold", color: C.primary, marginTop: 16, marginBottom: 6 },
-  p:          { fontSize: 14, fontFamily: "PublicSans_400Regular", color: C.mid, lineHeight: 22 },
-  bulletRow:  { flexDirection: "row", gap: 8, marginVertical: 2 },
-  bullet:     { fontSize: 14, color: C.burs, marginTop: 2 },
-  bulletText: { flex: 1, fontSize: 14, fontFamily: "PublicSans_400Regular", color: C.mid, lineHeight: 22 },
-  tableRow:   { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: C.border, paddingVertical: 6, gap: 8 },
-  tableCell:  { flex: 1, fontSize: 13, fontFamily: "PublicSans_400Regular", color: C.mid },
+  wrap:           { gap: 2 },
+  h2:             { fontSize: 16, fontFamily: "PublicSans_700Bold", color: C.primary, marginTop: 16, marginBottom: 6 },
+  p:              { fontSize: 14, fontFamily: "PublicSans_400Regular", color: C.mid, lineHeight: 22 },
+  bulletRow:      { flexDirection: "row", gap: 8, marginVertical: 2 },
+  bullet:         { fontSize: 14, color: C.burs, marginTop: 2 },
+  bulletText:     { flex: 1, fontSize: 14, fontFamily: "PublicSans_400Regular", color: C.mid, lineHeight: 22 },
+  tableRow:       { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: C.border, paddingVertical: 6, gap: 8 },
+  tableCell:      { flex: 1, fontSize: 13, fontFamily: "PublicSans_400Regular", color: C.mid },
   tableCellLabel: { fontFamily: "PublicSans_600SemiBold", color: C.primary },
-  rule:       { height: 1, backgroundColor: C.border, marginVertical: 12 },
-  spacer:     { height: 6 },
+  rule:           { height: 1, backgroundColor: C.border, marginVertical: 12 },
+  spacer:         { height: 6 },
 });
 
 // ── Category chip ─────────────────────────────────────────────────────────────
 function CategoryCard({ cat, active, onPress }: { cat: KBCategory; active: boolean; onPress: () => void }) {
   const cc = catColor(cat.id);
   return (
-    <Pressable style={({ pressed }) => [s.catCard, active && { borderColor: cc.text, backgroundColor: cc.bg }, pressed && { opacity: 0.75 }]} onPress={onPress}>
+    <Pressable
+      style={({ pressed }) => [
+        s.catCard,
+        active && { borderColor: cc.text, backgroundColor: cc.bg },
+        pressed && { opacity: 0.75 },
+      ]}
+      onPress={onPress}
+    >
       <View style={[s.catIconWrap, { backgroundColor: active ? cc.bg : C.borderSoft }]}>
         <MaterialIcons name={cat.icon as any} size={22} color={active ? cc.text : C.muted} />
       </View>
@@ -175,7 +187,6 @@ function ArticleDetail({ article, onBack }: { article: KBArticle; onBack: () => 
         <View style={{ width: 38 }} />
       </View>
       <ScrollView style={s.scroll} contentContainerStyle={s.detailContent} showsVerticalScrollIndicator={false}>
-        {/* Article header */}
         <View style={[s.detailBanner, { backgroundColor: cc.bg }]}>
           <Text style={[s.detailCategory, { color: cc.text }]}>{article.category_id.toUpperCase()}</Text>
           <Text style={[s.detailTitle, { color: C.primary }]}>{article.title}</Text>
@@ -184,14 +195,10 @@ function ArticleDetail({ article, onBack }: { article: KBArticle; onBack: () => 
             <Text style={s.detailMetaText}>{article.reading_time_minutes} min read</Text>
           </View>
         </View>
-
-        {/* Body */}
         <View style={s.detailBody}>
           <MarkdownBlock content={article.content} />
         </View>
-
-        {/* Tags */}
-        <View style={[s.tagsRow, { marginTop: 20, flexWrap: "wrap", gap: 8 }]}>
+        <View style={[s.tagsRow, { marginTop: 20, flexWrap: "wrap", gap: 8, paddingHorizontal: 20 }]}>
           {article.tags.map((t) => (
             <View key={t} style={s.tag}><Text style={s.tagText}>{t}</Text></View>
           ))}
@@ -208,20 +215,62 @@ export default function KnowledgeBaseScreen() {
   const [activeCatId,     setActiveCatId]     = useState<string | null>(null);
   const [selectedArticle, setSelectedArticle] = useState<KBArticle | null>(null);
 
+  // ── API hooks — fall back to static if error or empty ──────────────────────
+  const {
+    data: apiCategories,
+    isLoading: catsLoading,
+    isError: catsError,
+  } = useKBCategories();
+
+  const {
+    data: apiArticles,
+    isLoading: articlesLoading,
+    isError: articlesError,
+  } = useKBArticles(
+    activeCatId ?? undefined,
+    search.trim() || undefined,
+  );
+
+  const isLoading = catsLoading || articlesLoading;
+
+  // Use API data when available and non-empty; otherwise fall back to static
+  const categories = (apiCategories && apiCategories.length > 0 && !catsError)
+    ? apiCategories
+    : STATIC_CATEGORIES;
+
+  const allArticles = (apiArticles && apiArticles.length > 0 && !articlesError)
+    ? apiArticles
+    : STATIC_ARTICLES;
+
+  // When using static data, apply client-side filtering (API handles it server-side)
+  const usingStaticData = !apiArticles || articlesError || apiArticles.length === 0;
+
   const filtered = useMemo(() => {
-    let articles = STATIC_ARTICLES;
-    if (activeCatId) articles = articles.filter((a) => a.category_id === activeCatId);
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      articles = articles.filter(
-        (a) => a.title.toLowerCase().includes(q) ||
-               a.summary.toLowerCase().includes(q) ||
-               a.tags.some((t) => t.toLowerCase().includes(q))
-      );
+    let articles = usingStaticData ? allArticles : allArticles;
+
+    if (usingStaticData) {
+      // Apply filters client-side since static data ignores API params
+      if (activeCatId) {
+        articles = articles.filter((a) => a.category_id === activeCatId);
+      }
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        articles = articles.filter(
+          (a) =>
+            a.title.toLowerCase().includes(q) ||
+            a.summary.toLowerCase().includes(q) ||
+            a.tags.some((t) => t.toLowerCase().includes(q))
+        );
+      }
     }
+
     // Pinned first
     return [...articles].sort((a, b) => (b.is_pinned ? 1 : 0) - (a.is_pinned ? 1 : 0));
-  }, [activeCatId, search]);
+  }, [allArticles, usingStaticData, activeCatId, search]);
+
+  const totalArticleCount = usingStaticData
+    ? STATIC_ARTICLES.filter((a) => !activeCatId || a.category_id === activeCatId).length
+    : (apiArticles?.length ?? STATIC_ARTICLES.length);
 
   if (selectedArticle) {
     return <ArticleDetail article={selectedArticle} onBack={() => setSelectedArticle(null)} />;
@@ -237,7 +286,12 @@ export default function KnowledgeBaseScreen() {
         <View style={{ width: 38 }} />
       </View>
 
-      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        style={s.scroll}
+        contentContainerStyle={s.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Hero */}
         <View style={s.hero}>
           <Text style={s.heroTitle}>Compliance Guides</Text>
@@ -267,6 +321,7 @@ export default function KnowledgeBaseScreen() {
           <>
             <Text style={s.sectionLabel}>BROWSE BY CATEGORY</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.catRow}>
+              {/* "All" chip */}
               <Pressable
                 style={[s.catCard, activeCatId === null && { borderColor: C.burs, backgroundColor: C.bursBg }]}
                 onPress={() => setActiveCatId(null)}
@@ -275,9 +330,10 @@ export default function KnowledgeBaseScreen() {
                   <MaterialIcons name="menu-book" size={22} color={activeCatId === null ? C.burs : C.muted} />
                 </View>
                 <Text style={[s.catLabel, activeCatId === null && { color: C.burs }]}>All</Text>
-                <Text style={s.catCount}>{STATIC_ARTICLES.length}</Text>
+                <Text style={s.catCount}>{usingStaticData ? STATIC_ARTICLES.length : (apiArticles?.length ?? STATIC_ARTICLES.length)}</Text>
               </Pressable>
-              {STATIC_CATEGORIES.map((cat) => (
+
+              {categories.map((cat) => (
                 <CategoryCard
                   key={cat.id}
                   cat={cat}
@@ -289,21 +345,42 @@ export default function KnowledgeBaseScreen() {
           </>
         )}
 
-        {/* Articles */}
+        {/* Section label */}
         <Text style={s.sectionLabel}>
-          {search ? `RESULTS (${filtered.length})` : activeCatId ? `${activeCatId.toUpperCase()} (${filtered.length})` : `ALL ARTICLES (${filtered.length})`}
+          {search
+            ? `RESULTS (${filtered.length})`
+            : activeCatId
+            ? `${activeCatId.toUpperCase()} (${filtered.length})`
+            : `ALL ARTICLES (${filtered.length})`}
         </Text>
 
-        {filtered.length === 0 ? (
+        {/* Loading skeleton */}
+        {isLoading && (
+          <View style={s.loadingWrap}>
+            <ActivityIndicator color={C.burs} />
+            <Text style={s.loadingText}>Loading articles…</Text>
+          </View>
+        )}
+
+        {/* Article list */}
+        {!isLoading && filtered.length === 0 && (
           <View style={s.emptyBox}>
             <MaterialIcons name="search-off" size={44} color={C.border} />
             <Text style={s.emptyTitle}>No articles found</Text>
             <Text style={s.emptyDesc}>Try a different search term or browse a category.</Text>
           </View>
-        ) : (
-          filtered.map((article) => (
-            <ArticleRow key={article.id} article={article} onPress={() => setSelectedArticle(article)} />
-          ))
+        )}
+
+        {!isLoading && filtered.map((article) => (
+          <ArticleRow key={article.id} article={article} onPress={() => setSelectedArticle(article)} />
+        ))}
+
+        {/* Offline / fallback notice */}
+        {usingStaticData && !isLoading && (
+          <View style={s.fallbackNote}>
+            <MaterialIcons name="info-outline" size={13} color={C.muted} />
+            <Text style={s.fallbackText}>Showing built-in guides. Connect to sync the latest articles.</Text>
+          </View>
         )}
 
         <View style={{ height: 40 }} />
@@ -336,6 +413,9 @@ const s = StyleSheet.create({
   catLabel:      { fontSize: 11, fontFamily: "PublicSans_600SemiBold", color: C.muted, textAlign: "center" },
   catCount:      { fontSize: 10, fontFamily: "PublicSans_400Regular", color: C.muted },
 
+  loadingWrap:   { alignItems: "center", paddingVertical: 32, gap: 10 },
+  loadingText:   { fontSize: 13, fontFamily: "PublicSans_400Regular", color: C.muted },
+
   articleRow:    { backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 16, marginBottom: 10 },
   pinnedBadge:   { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 8 },
   pinnedText:    { fontSize: 10, fontFamily: "PublicSans_700Bold", color: C.amber, textTransform: "uppercase", letterSpacing: 0.5 },
@@ -353,6 +433,9 @@ const s = StyleSheet.create({
   emptyBox:      { alignItems: "center", paddingVertical: 48, gap: 10 },
   emptyTitle:    { fontSize: 16, fontFamily: "PublicSans_700Bold", color: C.primary },
   emptyDesc:     { fontSize: 13, color: C.muted, textAlign: "center", maxWidth: 240 },
+
+  fallbackNote:  { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: C.surface, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.border, marginTop: 4 },
+  fallbackText:  { flex: 1, fontSize: 11, fontFamily: "PublicSans_400Regular", color: C.muted, lineHeight: 16 },
 
   // Detail view
   detailContent: { paddingBottom: 32 },

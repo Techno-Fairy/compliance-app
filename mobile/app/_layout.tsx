@@ -11,6 +11,13 @@ import {
 } from "@expo-google-fonts/public-sans";
 import { useNetworkFlusher } from "@/store/offlineQueue";
 import { useNotificationSetup } from "@/hooks/useNotifications";
+import { ActivityIndicator, View } from "react-native";
+import {
+  useFonts,
+  PublicSans_400Regular,
+  PublicSans_600SemiBold,
+  PublicSans_700Bold,
+} from "@expo-google-fonts/public-sans";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -49,7 +56,7 @@ export default function RootLayout() {
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="(tabs)" />
           {/* Week 3 */}
-          <Stack.Screen name="add-task"  options={{ presentation: "modal" }} />
+          <Stack.Screen name="add-task" options={{ presentation: "modal" }} />
           <Stack.Screen name="history" />
           {/* Week 4 */}
           <Stack.Screen name="knowledge-base" />

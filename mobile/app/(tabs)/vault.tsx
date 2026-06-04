@@ -6,6 +6,7 @@ import React, { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,7 +20,8 @@ import { MaterialIcons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { differenceInDays, format, parseISO } from "date-fns";
-import { useDocuments, useDeleteDocument, useUploadDocument } from "@/hooks/useDocuments";
+import { useDocuments, useDeleteDocument, useUploadDocument, useGetDocumentDownloadUrl } from "@/hooks/useDocuments";
+import { DatePickerField } from "@/components/DatePickerField";
 import type { Document } from "@/types";
 
 const C = {
@@ -138,12 +140,14 @@ function UploadModal({ visible, onClose, onUpload }: {
               ))}
             </ScrollView>
           </View>
-          <View style={um.section}>
-            <Text style={um.label}>EXPIRY DATE (OPTIONAL)</Text>
-            <TextInput style={um.input} placeholder="YYYY-MM-DD" placeholderTextColor={C.muted}
-              value={expiryDate} onChangeText={setExpiryDate} maxLength={10} />
-            <Text style={um.hint}>Enter for tax clearance certificates and trade licences.</Text>
-          </View>
+          <DatePickerField
+            label="Expiry Date"
+            value={expiryDate}
+            onChange={setExpiryDate}
+            placeholder="No expiry date"
+            optional
+          />
+          <Text style={um.hint}>Set for tax clearance certificates and trade licences.</Text>
         </ScrollView>
         <View style={um.footer}>
           <Pressable style={[um.confirmBtn, !picked && um.confirmBtnDisabled]} onPress={handleConfirm} disabled={!picked}>
@@ -186,8 +190,22 @@ const eb = StyleSheet.create({
 
 function DocumentRow({ doc, onDelete }: { doc: Document; onDelete: (id: number) => void }) {
   const [swiped, setSwiped] = useState(false);
+  const { mutate: getDownloadUrl, isPending: isOpening } = useGetDocumentDownloadUrl();
+
   const ext = doc.filename.split(".").pop()?.toUpperCase() ?? "FILE";
   const iconName: string = ["PDF"].includes(ext) ? "picture-as-pdf" : ["JPG","JPEG","PNG"].includes(ext) ? "image" : "insert-drive-file";
+
+  const handleOpen = () => {
+    if (swiped) { setSwiped(false); return; }
+    getDownloadUrl(doc.id, {
+      onSuccess: (url) => {
+        Linking.openURL(url).catch(() =>
+          Alert.alert("Could not open file", "Please try again or check your internet connection.")
+        );
+      },
+      onError: () => Alert.alert("Could not open file", "Failed to get a download link. Please try again."),
+    });
+  };
 
   const handleDelete = () => {
     Alert.alert("Delete document", `Remove "${doc.filename}" from your Evidence Locker?`, [
@@ -203,16 +221,25 @@ function DocumentRow({ doc, onDelete }: { doc: Document; onDelete: (id: number) 
         <MaterialIcons name="delete-outline" size={22} color="#fff" />
         <Text style={dr.deleteText}>Delete</Text>
       </Pressable>
-      <Pressable style={[dr.row, swiped && dr.rowSwiped]} onLongPress={() => setSwiped(!swiped)} delayLongPress={300}>
+      <Pressable
+        style={[dr.row, swiped && dr.rowSwiped]}
+        onPress={handleOpen}
+        onLongPress={() => setSwiped(!swiped)}
+        delayLongPress={300}
+        disabled={isOpening}
+      >
         <View style={dr.iconWrap}>
-          <MaterialIcons name={iconName as any} size={26} color={C.burs} />
+          {isOpening
+            ? <ActivityIndicator size="small" color={C.burs} />
+            : <MaterialIcons name={iconName as any} size={26} color={C.burs} />
+          }
         </View>
         <View style={dr.info}>
           <Text style={dr.filename} numberOfLines={1}>{doc.filename}</Text>
           <Text style={dr.meta}>{doc.category}{"  ·  "}{format(parseISO(doc.uploaded_at), "dd MMM yyyy")}</Text>
           {doc.expiry_date ? <ExpiryBadge expiryDate={doc.expiry_date} /> : null}
         </View>
-        <MaterialIcons name="chevron-right" size={20} color={C.border} />
+        <MaterialIcons name={isOpening ? "hourglass-empty" : "chevron-right"} size={20} color={C.border} />
       </Pressable>
     </View>
   );
