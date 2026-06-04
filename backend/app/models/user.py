@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Enum, String
+from sqlalchemy import Boolean, DateTime, Enum, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -25,6 +25,14 @@ class User(Base):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     fcm_token: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    # ── Notification preferences (BE-16 / Week 5 migration) ──────────────────
+    notif_deadline_reminders: Mapped[bool] = mapped_column(Boolean, default=True)
+    notif_reminder_days: Mapped[int] = mapped_column(Integer, default=7)
+    notif_penalty_alerts: Mapped[bool] = mapped_column(Boolean, default=True)
+    notif_document_expiry: Mapped[bool] = mapped_column(Boolean, default=True)
+    notif_weekly_digest: Mapped[bool] = mapped_column(Boolean, default=False)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

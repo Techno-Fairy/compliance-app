@@ -55,5 +55,8 @@ class Deadline(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
     )
+    last_notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     business: Mapped["BusinessProfile"] = relationship(back_populates="deadlines")  # noqa: F821
