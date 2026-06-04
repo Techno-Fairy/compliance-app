@@ -10,6 +10,9 @@ from app.models.user import User  # noqa: F401
 from app.models.business import BusinessProfile  # noqa: F401
 from app.models.deadline import Deadline  # noqa: F401
 from app.models.document import Document  # noqa: F401
+from app.models.history import FilingHistoryEntry  # noqa: F401
+from app.models.knowledge import KnowledgeArticle  # noqa: F401
+from app.models.team import TeamMembership  # noqa: F401
 
 load_dotenv()
 
