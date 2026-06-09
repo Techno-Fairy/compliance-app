@@ -23,7 +23,7 @@ export function useTrendData() {
   return useQuery<TrendData>({
     queryKey: ["compliance-trend"],
     queryFn: async () => {
-      const { data } = await api.get<TrendData>("/analytics/trend");
+      const { data } = await api.get<TrendData>("/analytics/trends");
       return data;
     },
     staleTime: 1000 * 60 * 10,

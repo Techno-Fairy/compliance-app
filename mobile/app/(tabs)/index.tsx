@@ -17,6 +17,7 @@ import { useDeadlines, useUpdateDeadlineStatus } from "@/hooks/useDeadlines";
 import { useHealthScore } from "@/hooks/useHealthScore";
 import { useTrendData, buildStaticTrend } from "@/hooks/useTrendData";
 import { PenaltyExposureModal } from "@/components/PenaltyExposureModal";
+import { ComplianceCalendarModal } from "@/components/ComplianceCalendarModal";
 import { TopBar } from "@/components/ui/TopBar";
 import type { Deadline, HealthScoreBreakdown } from "@/types";
 
@@ -209,9 +210,12 @@ const CHART_PAD_Y = 12;
 
 function TrendChart({ score, band }: { score: number; band: string }) {
   const { data: trendData } = useTrendData();
-  const trend = trendData ?? buildStaticTrend(score);
+  // Guard: fall back to static trend if API data is missing or has no points
+  const trend = (trendData?.points?.length ?? 0) > 0 ? trendData! : buildStaticTrend(score);
 
-  const points = trend.points;
+  const points = trend.points ?? [];
+  if (points.length === 0) return null;
+
   const minScore = Math.min(...points.map((p) => p.score)) - 10;
   const maxScore = Math.max(...points.map((p) => p.score)) + 5;
   const range = Math.max(maxScore - minScore, 20);
@@ -241,6 +245,7 @@ function TrendChart({ score, band }: { score: number; band: string }) {
       </View>
 
       {/* SVG chart */}
+      <View style={{ alignSelf: "stretch" }}>
       <Svg width="100%" height={CHART_H + 20} viewBox={`0 0 ${CHART_W} ${CHART_H + 20}`}>
         {/* Horizontal grid lines */}
         {[25, 50, 75, 100].map((v) => {
@@ -290,6 +295,7 @@ function TrendChart({ score, band }: { score: number; band: string }) {
           </SvgText>
         ))}
       </Svg>
+      </View>
 
       {/* Mini legend */}
       <View style={tc.legendRow}>
@@ -306,7 +312,7 @@ function TrendChart({ score, band }: { score: number; band: string }) {
 }
 
 const tc = StyleSheet.create({
-  wrap:      { marginTop: 12 },
+  wrap:      { marginTop: 12, alignSelf: "stretch" },
   titleRow:  { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 },
   title:     { fontSize: 13, fontFamily: "PublicSans_600SemiBold", color: C.mid },
   changeRow: { flexDirection: "row", alignItems: "center", gap: 3 },
@@ -469,6 +475,7 @@ export default function DashboardScreen() {
   const [refreshing,         setRefreshing]         = useState(false);
   const [penaltyVisible,     setPenaltyVisible]     = useState(false);
   const [breakdownVisible,   setBreakdownVisible]   = useState(false);  // FE-21
+  const [calendarVisible,    setCalendarVisible]    = useState(false);  // FE-22
 
   const { data: deadlines, isLoading: dlLoading, isError: dlError, refetch: refetchDl } =
     useDeadlines(activeFilter === "ALL" ? undefined : activeFilter);
@@ -516,7 +523,17 @@ export default function DashboardScreen() {
 
         {/* Health score card — tappable (FE-21) */}
         <View style={ss.scoreCard}>
-          <Text style={ss.scoreEyebrow}>COMPLIANCE HEALTH SCORE</Text>
+          <View style={ss.scoreCardHeader}>
+            <Text style={ss.scoreEyebrow}>COMPLIANCE HEALTH SCORE</Text>
+            <Pressable
+              onPress={() => setCalendarVisible(true)}
+              style={ss.calendarBtn}
+              hitSlop={8}
+              accessibilityLabel="Open compliance calendar"
+            >
+              <MaterialIcons name="calendar-month" size={18} color={C.burs} />
+            </Pressable>
+          </View>
           {scoreLoading ? (
             <ActivityIndicator color={C.secondary} style={{ marginVertical: 20 }} />
           ) : (
@@ -642,6 +659,13 @@ export default function DashboardScreen() {
         band={band}
         breakdown={breakdown}
       />
+
+      {/* FE-22: Compliance Calendar Modal */}
+      <ComplianceCalendarModal
+        visible={calendarVisible}
+        onClose={() => setCalendarVisible(false)}
+        deadlines={deadlines ?? []}
+      />
     </SafeAreaView>
   );
 }
@@ -658,7 +682,9 @@ const ss = StyleSheet.create({
   overdueDesc:   { fontSize: 12, color: C.error, opacity: 0.85 },
 
   scoreCard:     { backgroundColor: C.surface, borderRadius: 16, padding: 20, marginTop: 14, marginBottom: 4, borderWidth: 1, borderColor: C.border, alignItems: "center" },
-  scoreEyebrow:  { fontSize: 10, fontWeight: "600", color: C.muted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 16 },
+  scoreCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%", marginBottom: 16 },
+  scoreEyebrow:  { fontSize: 10, fontWeight: "600", color: C.muted, letterSpacing: 1.5, textTransform: "uppercase" },
+  calendarBtn:   { width: 32, height: 32, borderRadius: 8, backgroundColor: C.bursBg, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: C.border },
   scoreDesc:     { fontSize: 13, color: C.mid, textAlign: "center", maxWidth: 260, lineHeight: 19, marginTop: 8 },
 
   gaugeWrap:     { alignItems: "center", marginBottom: 4 },

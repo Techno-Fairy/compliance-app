@@ -19,6 +19,7 @@ const C = {
   border:     "#c5c6cf",
   borderSoft: "#e6f6ff",
   container:  "#dbf1fe",
+  containerLow: "#e6f6ff",
   error:      "#ba1a1a",
   errorBg:    "#ffdad6",
   burs:       "#1A3C5E",
@@ -158,7 +159,7 @@ function InviteTeamModal({ visible, onClose }: { visible: boolean; onClose: () =
     if (!email.includes("@")) { setErr("Please enter a valid email address."); return; }
     setSending(true); setErr("");
     try {
-      await api.post("/auth/invite", { email, role });
+      await api.post("/team/invite", { email, role });
       setEmail(""); onClose();
       Alert.alert("Invite sent", `An invitation has been sent to ${email}.`);
     } catch (e: any) {
