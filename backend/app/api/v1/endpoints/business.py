@@ -5,7 +5,11 @@ from app.core.deps import get_current_user
 from app.db.database import get_db
 from app.models.business import BusinessProfile
 from app.models.user import User
-from app.schemas.business import BusinessProfileCreate, BusinessProfileResponse
+from app.schemas.business import (
+    BusinessProfileCreate,
+    BusinessProfileResponse,
+    BusinessProfileUpdate,
+)
 
 router = APIRouter(prefix="/business", tags=["business"])
 
@@ -67,13 +71,16 @@ def get_profile(
 
 @router.patch("/profile", response_model=BusinessProfileResponse)
 def update_profile(
-    body: BusinessProfileCreate,
+    body: BusinessProfileUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    Update the authenticated user's business profile.
-    Only fields present in the request body are updated (partial update).
+    Partially update the authenticated user's business profile.
+
+    Accepts any subset of fields. BE-24: also accepts
+    { is_onboarding_complete: true } for a manual override —
+    the auto-set path lives in the onboarding endpoint (BE-28).
     """
     profile = _get_or_404(db, owner_id=current_user.id)
     for key, value in body.model_dump(exclude_unset=True).items():

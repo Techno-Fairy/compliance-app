@@ -25,6 +25,8 @@ class BusinessProfile(Base):
     burs_tin: Mapped[str | None] = mapped_column(String(20), nullable=True)
     vat_registered: Mapped[bool] = mapped_column(Boolean, default=False)
     vat_filing_monthly: Mapped[bool] = mapped_column(Boolean, default=True)
+    # BE-24: gates dashboard vs. guide mode; auto-set true when all Phase 4 steps complete
+    is_onboarding_complete: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -35,5 +37,9 @@ class BusinessProfile(Base):
         back_populates="business", cascade="all, delete-orphan"
     )
     documents: Mapped[list["Document"]] = relationship(  # noqa: F821
+        back_populates="business", cascade="all, delete-orphan"
+    )
+    # BE-26 (upcoming): onboarding progress rows seeded on profile creation
+    onboarding_progress: Mapped[list["OnboardingProgress"]] = relationship(  # noqa: F821
         back_populates="business", cascade="all, delete-orphan"
     )
