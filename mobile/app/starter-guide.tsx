@@ -1,21 +1,23 @@
 /**
- * /starter-guide — FE-24
+ * app/starter-guide.tsx — FE-24 (revised: Steps 1-3)
  *
- * 4-phase accordion screen showing all onboarding steps with status icons.
- * - Active phase auto-expands; completed phases collapse with green checkmark.
- * - Overall progress pill in header.
- * - Matches CompliancePro design system: PublicSans, C tokens, TopBar.
+ * PUBLIC screen — no JWT required.
  *
- * Step detail (documents, portal link, Mark Complete button) is FE-25.
- * "Setup Complete" celebration flow is FE-26.
+ * Changes from original:
+ *  Step 1 — Screen renders without a JWT token; step data is static local JSON.
+ *            "Exit / Save for later?" prompt warns progress is local only.
+ *  Step 2 — Reads / writes progress to SQLite via localOnboardingProgress.ts.
+ *            Checkmarks and progress pills are driven by local data.
+ *  Step 3 — When all 15 steps are complete, shows a persistent
+ *            "Create Your Compliance Account" button instead of "Go to Dashboard".
  */
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Animated,
+  BackHandler,
   Pressable,
-  RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -25,12 +27,16 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useOnboardingSteps, useCompleteOnboarding } from "@/hooks/useOnboardingProgress";
+import { useRouter, useFocusEffect } from "expo-router";
 import { TopBar } from "@/components/ui/TopBar";
+import {
+  getLocalProgress,
+  markLocalStep,
+  type LocalStepProgress,
+} from "@/lib/localOnboardingProgress";
 import type { OnboardingPhase, OnboardingStep } from "@/types";
 
-// ── Design tokens ─────────────────────────────────────────────────────────────
+// ── Design tokens ──────────────────────────────────────────────────────────────
 const C = {
   bg:            "#f3faff",
   surface:       "#ffffff",
@@ -54,14 +60,226 @@ const C = {
   containerLow:  "#e6f6ff",
 };
 
-const PHASE_META: Record<number, { label: string; icon: React.ComponentProps<typeof MaterialIcons>["name"] }> = {
-  1: { label: "Register Your Business",     icon: "business"         },
-  2: { label: "Set Up Your Taxes",          icon: "account-balance"  },
-  3: { label: "Employment & Licensing",     icon: "people"           },
-  4: { label: "Activate Ongoing Compliance",icon: "verified"         },
+const PHASE_META: Record<
+  number,
+  { label: string; icon: React.ComponentProps<typeof MaterialIcons>["name"] }
+> = {
+  1: { label: "Register Your Business",      icon: "business"         },
+  2: { label: "Set Up Your Taxes",           icon: "account-balance"  },
+  3: { label: "Employment & Licensing",      icon: "people"           },
+  4: { label: "Activate Ongoing Compliance", icon: "verified"         },
 };
 
-// ── Step row ──────────────────────────────────────────────────────────────────
+// ── Static step data (Step 1: no backend call required) ───────────────────────
+const STATIC_PHASES: OnboardingPhase[] = [
+  {
+    phase: 1,
+    total_steps: 3,
+    completed_steps: 0,
+    steps: [
+      {
+        id: 1, phase: 1, step_number: 1, completed: false, completed_at: null,
+        title: "Reserve your company / business name",
+        description:
+          "Choose at least three proposed names and submit them to CIPA via OBRS. " +
+          "CIPA checks availability and reserves the approved name for 30 days.",
+        portal_url: "https://obrs.gov.bw",
+        documents: ["3 proposed names", "ID copy", "BWP 80 reservation fee"],
+      },
+      {
+        id: 2, phase: 1, step_number: 2, completed: false, completed_at: null,
+        title: "Incorporate or register the business",
+        description:
+          "Pty Ltd: file Memorandum & Articles of Association. " +
+          "Sole trader or partnership: complete the relevant CIPA registration form.",
+        portal_url: "https://obrs.gov.bw",
+        documents: [
+          "Memorandum & Articles (Pty Ltd) OR registration form (sole trader/partnership)",
+          "ID copies for all directors / partners",
+          "Registered office address proof",
+        ],
+      },
+      {
+        id: 3, phase: 1, step_number: 3, completed: false, completed_at: null,
+        title: "Collect Certificate of Incorporation / Registration",
+        description:
+          "Download your CIPA certificate from OBRS once issued. Keep the original — " +
+          "it is required for BURS registration.",
+        portal_url: "https://obrs.gov.bw",
+        documents: ["CIPA certificate (download or collect in person)"],
+      },
+    ],
+  },
+  {
+    phase: 2,
+    total_steps: 4,
+    completed_steps: 0,
+    steps: [
+      {
+        id: 4, phase: 2, step_number: 1, completed: false, completed_at: null,
+        title: "Register for a Tax Identification Number (TIN)",
+        description:
+          "Register with BURS to receive your TIN. Required before you can file any " +
+          "tax returns. Can be done at a BURS office or via eServices.",
+        portal_url: "https://eservices.burs.org.bw",
+        documents: [
+          "CIPA certificate",
+          "Director's / owner's ID copy",
+          "Proof of business address (lease or utility bill)",
+        ],
+      },
+      {
+        id: 5, phase: 2, step_number: 2, completed: false, completed_at: null,
+        title: "Assess your VAT registration obligation",
+        description:
+          "VAT registration is compulsory if your annual turnover meets or exceeds " +
+          "BWP 1,000,000. You may register voluntarily below this threshold.",
+        portal_url: "https://eservices.burs.org.bw",
+        documents: [
+          "TIN",
+          "Estimated annual turnover (for BURS assessment)",
+        ],
+      },
+      {
+        id: 6, phase: 2, step_number: 3, completed: false, completed_at: null,
+        title: "Register for PAYE (if employing staff)",
+        description:
+          "If you pay salaries, you must register as a PAYE employer with BURS and " +
+          "remit employee tax monthly.",
+        portal_url: "https://eservices.burs.org.bw",
+        documents: ["TIN", "List of employees", "Employment contracts"],
+      },
+      {
+        id: 7, phase: 2, step_number: 4, completed: false, completed_at: null,
+        title: "Register for Withholding Tax (if applicable)",
+        description:
+          "Required if your business pays dividends, royalties, or management fees " +
+          "to non-residents.",
+        portal_url: "https://eservices.burs.org.bw",
+        documents: ["TIN", "Details of non-resident payees"],
+      },
+    ],
+  },
+  {
+    phase: 3,
+    total_steps: 4,
+    completed_steps: 0,
+    steps: [
+      {
+        id: 8, phase: 3, step_number: 1, completed: false, completed_at: null,
+        title: "Obtain a Trade Licence",
+        description:
+          "A trade licence from MITI (or your Local Council) is required before you " +
+          "begin trading. The type of licence depends on your business activity.",
+        portal_url: "https://miti.gov.bw",
+        documents: [
+          "CIPA certificate",
+          "Lease agreement / proof of premises",
+          "Completed trade licence application form",
+          "ID copy",
+        ],
+      },
+      {
+        id: 9, phase: 3, step_number: 2, completed: false, completed_at: null,
+        title: "Prepare employment contracts",
+        description:
+          "The Botswana Employment Act (s.28) requires a written employment contract " +
+          "within the first month of employment. Download the MITI minimum wage schedule.",
+        portal_url: "https://miti.gov.bw",
+        documents: [
+          "Written employment contract (one per employee)",
+          "MITI minimum wage schedule",
+        ],
+      },
+      {
+        id: 10, phase: 3, step_number: 3, completed: false, completed_at: null,
+        title: "Register for Workers Compensation (BOCCIM)",
+        description:
+          "Optional but strongly recommended. Provides employer liability cover for " +
+          "workplace injuries.",
+        portal_url: "https://boccim.co.bw",
+        documents: ["CIPA certificate", "List of employees"],
+      },
+      {
+        id: 11, phase: 3, step_number: 4, completed: false, completed_at: null,
+        title: "Set up payroll and leave records",
+        description:
+          "The Labour Act requires written leave records. Set up a payroll spreadsheet " +
+          "or accounting software to track salaries, leave balances, and deductions.",
+        portal_url: null,
+        documents: [
+          "Payroll register (spreadsheet or software)",
+          "Leave record per employee",
+        ],
+      },
+    ],
+  },
+  {
+    phase: 4,
+    total_steps: 4,
+    completed_steps: 0,
+    steps: [
+      {
+        id: 12, phase: 4, step_number: 1, completed: false, completed_at: null,
+        title: "Create your CompliancePro account",
+        description:
+          "Create your account and add your CIPA number, TIN, and VAT status. " +
+          "CompliancePro will seed your personalised compliance calendar.",
+        portal_url: null,
+        documents: ["CIPA number", "BURS TIN"],
+      },
+      {
+        id: 13, phase: 4, step_number: 2, completed: false, completed_at: null,
+        title: "Review your pre-seeded compliance calendar",
+        description:
+          "Check that all your BURS, CIPA, and Labour Act deadlines are correct. " +
+          "Add any custom obligations specific to your business.",
+        portal_url: null,
+        documents: [],
+      },
+      {
+        id: 14, phase: 4, step_number: 3, completed: false, completed_at: null,
+        title: "Enable push notifications",
+        description:
+          "Allow notifications so CompliancePro can alert you 30, 14, and 3 days " +
+          "before each deadline.",
+        portal_url: null,
+        documents: [],
+      },
+      {
+        id: 15, phase: 4, step_number: 4, completed: false, completed_at: null,
+        title: "Activate your compliance dashboard",
+        description:
+          "Your health score is now live. Upload your first compliance document to " +
+          "start building your evidence trail.",
+        portal_url: null,
+        documents: [],
+      },
+    ],
+  },
+];
+
+const TOTAL_STEPS = STATIC_PHASES.reduce((acc, p) => acc + p.total_steps, 0);
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function buildPhasesWithProgress(
+  progressMap: Record<number, LocalStepProgress>
+): OnboardingPhase[] {
+  return STATIC_PHASES.map((phase) => {
+    const steps = phase.steps.map((step) => {
+      const local = progressMap[step.id];
+      return {
+        ...step,
+        completed: local?.completed ?? false,
+        completed_at: local?.completed_at ?? null,
+      };
+    });
+    const completed_steps = steps.filter((s) => s.completed).length;
+    return { ...phase, steps, completed_steps };
+  });
+}
+
+// ── StepRow ───────────────────────────────────────────────────────────────────
 function StepRow({
   step,
   onPress,
@@ -76,8 +294,9 @@ function StepRow({
       accessibilityRole="button"
       accessibilityLabel={step.title}
     >
-      {/* Status icon */}
-      <View style={[s.stepIcon, step.completed ? s.stepIconDone : s.stepIconPending]}>
+      <View
+        style={[s.stepIcon, step.completed ? s.stepIconDone : s.stepIconPending]}
+      >
         {step.completed ? (
           <MaterialIcons name="check" size={14} color={C.secondaryText} />
         ) : (
@@ -85,7 +304,6 @@ function StepRow({
         )}
       </View>
 
-      {/* Title + documents hint */}
       <View style={s.stepBody}>
         <Text
           style={[s.stepTitle, step.completed && s.stepTitleDone]}
@@ -95,124 +313,122 @@ function StepRow({
         </Text>
         {step.documents.length > 0 && (
           <Text style={s.stepDocs} numberOfLines={1}>
-            {step.documents.length} document{step.documents.length > 1 ? "s" : ""} required
+            {step.documents.length} document
+            {step.documents.length > 1 ? "s" : ""} required
           </Text>
         )}
       </View>
 
-      {/* Chevron */}
-      <MaterialIcons name="chevron-right" size={18} color={C.border} />
+      <MaterialIcons name="chevron-right" size={18} color={C.muted} />
     </Pressable>
   );
 }
 
-// ── Phase accordion ───────────────────────────────────────────────────────────
+// ── PhaseAccordion ────────────────────────────────────────────────────────────
 function PhaseAccordion({
   phase,
-  defaultOpen,
+  isOpen,
+  onToggle,
   onStepPress,
 }: {
   phase: OnboardingPhase;
-  defaultOpen: boolean;
+  isOpen: boolean;
+  onToggle: () => void;
   onStepPress: (step: OnboardingStep) => void;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
-  const anim        = useRef(new Animated.Value(defaultOpen ? 1 : 0)).current;
-  const chevronAnim = useRef(new Animated.Value(defaultOpen ? 1 : 0)).current;
+  const anim = useRef(new Animated.Value(isOpen ? 1 : 0)).current;
 
-  const meta = PHASE_META[phase.phase] ?? { label: `Phase ${phase.phase}`, icon: "checklist" };
-  const isPhaseComplete = phase.completed_steps === phase.total_steps && phase.total_steps > 0;
-  const progressPct = phase.total_steps > 0
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: isOpen ? 1 : 0,
+      duration: 220,
+      useNativeDriver: false,
+    }).start();
+  }, [isOpen]);
+
+  const meta = PHASE_META[phase.phase];
+  const isDone = phase.completed_steps === phase.total_steps;
+  const pct = phase.total_steps
     ? Math.round((phase.completed_steps / phase.total_steps) * 100)
     : 0;
 
-  const toggle = () => {
-    const to = open ? 0 : 1;
-    Animated.parallel([
-      Animated.spring(anim,        { toValue: to, useNativeDriver: false, friction: 14, tension: 80 }),
-      Animated.spring(chevronAnim, { toValue: to, useNativeDriver: true,  friction: 14, tension: 80 }),
-    ]).start();
-    setOpen(!open);
-  };
-
-  const estimatedItemH = 72;
-  const maxHeight = anim.interpolate({
-    inputRange:  [0, 1],
-    outputRange: [0, phase.total_steps * estimatedItemH + 24],
-  });
-  const opacity = anim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 0.6, 1] });
-  const chevronRotate = chevronAnim.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "180deg"] });
-
   return (
     <View style={s.phaseWrap}>
-      {/* Phase header */}
-      <TouchableOpacity
+      <Pressable
         style={[
           s.phaseHeader,
-          isPhaseComplete && s.phaseHeaderDone,
-          open && !isPhaseComplete && s.phaseHeaderOpen,
+          isDone && s.phaseHeaderDone,
+          isOpen && !isDone && s.phaseHeaderOpen,
         ]}
-        onPress={toggle}
-        activeOpacity={0.78}
+        onPress={onToggle}
         accessibilityRole="button"
-        accessibilityLabel={`${meta.label}, ${phase.completed_steps} of ${phase.total_steps} steps complete`}
+        accessibilityState={{ expanded: isOpen }}
       >
-        {/* Phase icon */}
         <View
           style={[
             s.phaseIconWrap,
-            isPhaseComplete ? s.phaseIconWrapDone : s.phaseIconWrapDefault,
+            isDone ? s.phaseIconWrapDone : s.phaseIconWrapDefault,
           ]}
         >
-          {isPhaseComplete ? (
-            <MaterialIcons name="check-circle" size={20} color={C.secondaryText} />
+          {isDone ? (
+            <MaterialIcons name="check-circle" size={22} color={C.secondaryText} />
           ) : (
-            <MaterialIcons name={meta.icon} size={20} color={open ? C.teal : C.mid} />
+            <MaterialIcons
+              name={meta.icon}
+              size={22}
+              color={isOpen ? C.teal : C.mid}
+            />
           )}
         </View>
 
-        {/* Labels */}
         <View style={s.phaseLabelCol}>
-          <Text style={s.phaseNum}>PHASE {phase.phase}</Text>
+          <Text style={s.phaseNum}>Phase {phase.phase}</Text>
           <Text
-            style={[s.phaseLabel, isPhaseComplete && s.phaseLabelDone, open && !isPhaseComplete && s.phaseLabelOpen]}
-            numberOfLines={1}
+            style={[
+              s.phaseLabel,
+              isDone && s.phaseLabelDone,
+              isOpen && !isDone && s.phaseLabelOpen,
+            ]}
           >
             {meta.label}
           </Text>
-
-          {/* Inline progress bar */}
           <View style={s.phaseBarTrack}>
             <View
               style={[
                 s.phaseBarFill,
                 {
-                  width: `${progressPct}%`,
-                  backgroundColor: isPhaseComplete ? C.secondaryText : C.teal,
+                  width: `${pct}%`,
+                  backgroundColor: isDone ? C.secondary : C.teal,
                 },
               ]}
             />
           </View>
         </View>
 
-        {/* Right side: count + chevron */}
         <View style={s.phaseRight}>
-          <Text style={[s.phaseCount, isPhaseComplete && { color: C.secondaryText }]}>
+          <Text style={s.phaseCount}>
             {phase.completed_steps}/{phase.total_steps}
           </Text>
-          <Animated.View style={{ transform: [{ rotate: chevronRotate }] }}>
-            <MaterialIcons
-              name="expand-less"
-              size={20}
-              color={isPhaseComplete ? C.secondaryText : open ? C.teal : C.muted}
-            />
-          </Animated.View>
+          <MaterialIcons
+            name={isOpen ? "expand-less" : "expand-more"}
+            size={20}
+            color={C.muted}
+          />
         </View>
-      </TouchableOpacity>
+      </Pressable>
 
-      {/* Steps list */}
-      <Animated.View style={[s.stepsBody, { maxHeight, opacity }]}>
-        <View style={[s.stepsContent, isPhaseComplete && s.stepsContentDone]}>
+      <Animated.View
+        style={[
+          s.stepsBody,
+          {
+            maxHeight: anim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, phase.total_steps * 80],
+            }),
+          },
+        ]}
+      >
+        <View style={[s.stepsContent, isDone && s.stepsContentDone]}>
           {phase.steps.map((step, idx) => (
             <View key={step.id}>
               {idx > 0 && <View style={s.stepDivider} />}
@@ -225,215 +441,216 @@ function PhaseAccordion({
   );
 }
 
-// ── Skeleton loader ───────────────────────────────────────────────────────────
-function SkeletonGuide() {
-  return (
-    <View style={{ gap: 10, opacity: 0.45 }}>
-      {[1, 2, 3, 4].map((i) => (
-        <View key={i} style={s.skelPhase}>
-          <View style={s.skelIcon} />
-          <View style={{ flex: 1, gap: 6 }}>
-            <View style={[s.skelLine, { width: 60, height: 10 }]} />
-            <View style={[s.skelLine, { width: "75%", height: 14 }]} />
-            <View style={[s.skelLine, { width: "100%", height: 5 }]} />
-          </View>
-        </View>
-      ))}
-    </View>
-  );
-}
-
 // ── Main screen ───────────────────────────────────────────────────────────────
 export default function StarterGuideScreen() {
   const router = useRouter();
-  const { data, isLoading, isError, refetch } = useOnboardingSteps();
-  const { mutate: completeOnboarding, isPending: isCompleting } = useCompleteOnboarding();
-  const [refreshing, setRefreshing] = useState(false);
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await refetch();
-    setRefreshing(false);
-  };
+  const [phases, setPhases] = useState<OnboardingPhase[]>(
+    buildPhasesWithProgress({})
+  );
+  const [openPhase, setOpenPhase] = useState<number>(1);
+  const [loading, setLoading] = useState(true);
 
+  // ── Load local progress on mount and on each focus ──────────────────────
+  const loadProgress = useCallback(async () => {
+    const progressMap = await getLocalProgress();
+    setPhases(buildPhasesWithProgress(progressMap));
+    setLoading(false);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadProgress();
+    }, [loadProgress])
+  );
+
+  // ── Auto-open the first incomplete phase ───────────────────────────────
+  useEffect(() => {
+    if (loading) return;
+    const first = phases.find((p) => p.completed_steps < p.total_steps);
+    if (first) setOpenPhase(first.phase);
+  }, [loading]);
+
+  // ── Derived ────────────────────────────────────────────────────────────
+  const completedSteps = phases.reduce((acc, p) => acc + p.completed_steps, 0);
+  const allComplete = completedSteps === TOTAL_STEPS;
+  const pct = Math.round((completedSteps / TOTAL_STEPS) * 100);
+
+  // ── Exit prompt (Step 1) ────────────────────────────────────────────────
+  const handleExit = useCallback(() => {
+    if (completedSteps === 0) {
+      router.back();
+      return;
+    }
+    Alert.alert(
+      "Save and Exit?",
+      "Your progress is saved on this device only. " +
+        "Create an account later to keep it permanently.",
+      [
+        { text: "Keep Going", style: "cancel" },
+        { text: "Exit", style: "destructive", onPress: () => router.back() },
+      ]
+    );
+  }, [completedSteps, router]);
+
+  // Intercept Android back button
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        handleExit();
+        return true;
+      });
+      return () => sub.remove();
+    }, [handleExit])
+  );
+
+  // ── Navigate to step detail ─────────────────────────────────────────────
   const handleStepPress = (step: OnboardingStep) => {
-    // FE-25 will implement the step detail expand; for now navigate with step id
-    router.push(`/starter-guide/${step.id}` as any);
+    router.push({
+      pathname: "/starter-guide/[id]",
+      params: { id: String(step.id) },
+    } as any);
   };
 
-  // Derive the active phase: first phase that is not yet complete
-  const activePhase = data?.phases.find((p) => p.completed_steps < p.total_steps)?.phase ?? 1;
-
-  const fromCache = (data as typeof data & { fromCache?: boolean })?.fromCache;
-  const overallPct = data?.overall_progress_pct ?? 0;
-  const completedSteps = data?.completed_steps ?? 0;
-  const totalSteps = data?.total_steps ?? 0;
+  // ── Loading skeleton ────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <SafeAreaView style={s.safe}>
+        <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
+        <TopBar title="Business Starter Guide" onBack={handleExit} />
+        <View style={{ flex: 1, padding: 16, gap: 12 }}>
+          {[1, 2, 3, 4].map((i) => (
+            <View key={i} style={s.skelPhase}>
+              <View style={s.skelIcon} />
+              <View style={{ flex: 1, gap: 6 }}>
+                <View style={[s.skelLine, { width: "40%", height: 10 }]} />
+                <View style={[s.skelLine, { width: "70%", height: 13 }]} />
+              </View>
+            </View>
+          ))}
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <SafeAreaView style={s.safe} edges={["top"]}>
-      <StatusBar barStyle="dark-content" backgroundColor={C.container} />
-      <TopBar showBack />
+    <SafeAreaView style={s.safe}>
+      <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
+      <TopBar title="Business Starter Guide" onBack={handleExit} />
 
       <ScrollView
         style={s.scroll}
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.teal} />
-        }
       >
-        {/* ── Hero header ─────────────────────────────────────────────────── */}
+        {/* ── Hero card ── */}
         <View style={s.hero}>
           <View style={s.heroLeft}>
-            <Text style={s.heroEyebrow}>BUSINESS SETUP GUIDE</Text>
-            <Text style={s.heroTitle}>
-              {data?.is_onboarding_complete
-                ? "Setup Complete 🎉"
-                : "Complete your setup"}
-            </Text>
+            <Text style={s.heroEyebrow}>Botswana Compliance Setup</Text>
+            <Text style={s.heroTitle}>Business Starter Guide</Text>
             <Text style={s.heroSub}>
-              {data?.is_onboarding_complete
-                ? "Your compliance dashboard is fully active."
-                : "Follow the steps below to become fully compliant in Botswana."}
+              4 phases · {TOTAL_STEPS} steps to full compliance
             </Text>
           </View>
-
-          {/* Overall progress ring */}
           <View style={s.heroPct}>
-            <Text style={s.heroPctNum}>{Math.round(overallPct)}%</Text>
+            <Text style={s.heroPctNum}>{pct}%</Text>
             <Text style={s.heroPctLabel}>done</Text>
           </View>
         </View>
 
-        {/* Overall progress bar */}
+        {/* ── Local-storage notice (Step 1) ── */}
+        <View style={s.noticeBanner}>
+          <MaterialIcons name="info-outline" size={16} color={C.teal} />
+          <Text style={s.noticeText}>
+            Progress is saved on this device. Create an account at the end to
+            keep it permanently.
+          </Text>
+        </View>
+
+        {/* ── Overall progress bar ── */}
         <View style={s.overallBarWrap}>
           <View style={s.overallBarTrack}>
             <View
               style={[
                 s.overallBarFill,
                 {
-                  width: `${overallPct}%`,
-                  backgroundColor: data?.is_onboarding_complete ? C.secondaryText : C.teal,
+                  width: `${pct}%`,
+                  backgroundColor: allComplete ? C.secondary : C.teal,
                 },
               ]}
             />
           </View>
           <Text style={s.overallBarLabel}>
-            {completedSteps} of {totalSteps} steps complete
+            {completedSteps} of {TOTAL_STEPS} steps complete
           </Text>
         </View>
 
-        {/* Offline notice */}
-        {fromCache && (
-          <View style={s.offlineBanner}>
-            <MaterialIcons name="cloud-off" size={14} color={C.amber} />
-            <Text style={s.offlineText}>
-              Showing cached steps — changes will sync when back online.
-            </Text>
-          </View>
-        )}
+        {/* ── Phase accordions ── */}
+        <View style={s.phases}>
+          {phases.map((phase) => (
+            <PhaseAccordion
+              key={phase.phase}
+              phase={phase}
+              isOpen={openPhase === phase.phase}
+              onToggle={() =>
+                setOpenPhase((prev) =>
+                  prev === phase.phase ? 0 : phase.phase
+                )
+              }
+              onStepPress={handleStepPress}
+            />
+          ))}
+        </View>
 
-        {/* ── Content ─────────────────────────────────────────────────────── */}
-        {isLoading && !data && <SkeletonGuide />}
-
-        {isError && !data && (
-          <View style={s.errorBox}>
-            <MaterialIcons name="wifi-off" size={40} color={C.error} />
-            <Text style={s.errorTitle}>Could not load guide</Text>
-            <Text style={s.errorDesc}>Check your connection and try again.</Text>
-            <Pressable style={s.retryBtn} onPress={() => refetch()}>
-              <Text style={s.retryText}>Retry</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {data && (
-          <View style={s.phases}>
-            {data.phases.map((phase) => (
-              <PhaseAccordion
-                key={phase.phase}
-                phase={phase}
-                defaultOpen={phase.phase === activePhase}
-                onStepPress={handleStepPress}
-              />
-            ))}
-          </View>
-        )}
-
-        {/* FE-26: "Setup Complete" celebration banner + Finish Setup CTA */}
-        {data?.is_onboarding_complete && (
+        {/* ── Step 3: Celebration + Create Account CTA ── */}
+        {allComplete && (
           <View style={s.celebrationCard}>
-            {/* Confetti-style accent strip */}
             <View style={s.celebrationStrip}>
-              {["#acf4a4", "#d8f3f6", "#FEF3E2", "#acf4a4", "#d8f3f6"].map((col, i) => (
-                <View key={i} style={[s.celebrationDot, { backgroundColor: col }]} />
-              ))}
+              {[C.teal, C.secondary, C.amber, C.teal, C.secondary].map(
+                (col, i) => (
+                  <View key={i} style={[s.celebrationDot, { backgroundColor: col }]} />
+                )
+              )}
             </View>
-
             <View style={s.celebrationBody}>
-              {/* Icon */}
               <View style={s.celebrationIcon}>
-                <MaterialIcons name="verified" size={32} color={C.secondaryText} />
+                <MaterialIcons name="celebration" size={30} color={C.secondary} />
               </View>
-
-              {/* Message */}
-              <Text style={s.celebrationTitle}>Setup Complete! 🎉</Text>
+              <Text style={s.celebrationTitle}>
+                Setup Complete!
+              </Text>
               <Text style={s.celebrationSub}>
-                All 4 compliance phases are done. Your health score, penalty
-                exposure engine, and deadline tracking are now fully active.
+                You've finished all 15 steps. Create your free CompliancePro
+                account to activate your compliance dashboard, penalty
+                tracker, and document vault.
               </Text>
 
-              {/* What's now active list */}
-              <View style={s.activatedList}>
-                {[
-                  { icon: "bar-chart",      label: "Health score activated"          },
-                  { icon: "warning",        label: "Penalty exposure engine live"    },
-                  { icon: "notifications",  label: "Deadline notifications enabled"  },
-                  { icon: "folder-special", label: "Evidence vault ready"            },
-                ].map(({ icon, label }) => (
-                  <View key={label} style={s.activatedRow}>
-                    <MaterialIcons name={icon as any} size={14} color={C.secondaryText} />
-                    <Text style={s.activatedLabel}>{label}</Text>
-                  </View>
-                ))}
-              </View>
-
-              {/* Go to Dashboard CTA */}
+              {/* ── PRIMARY: Create Account ── */}
               <Pressable
                 style={({ pressed }) => [
-                  s.finishBtn,
-                  pressed && { opacity: 0.82 },
-                  isCompleting && s.finishBtnDisabled,
+                  s.createBtn,
+                  pressed && { opacity: 0.88 },
                 ]}
-                onPress={() => {
-                  // data.is_onboarding_complete is already true (set by the last
-                  // PATCH /onboarding/steps auto-trigger in BE-28). We call the
-                  // manual override as a belt-and-braces confirmation, then navigate.
-                  completeOnboarding(undefined, {
-                    onSuccess: () => router.replace("/(tabs)" as any),
-                    onError: () => {
-                      // Cache was already flipped optimistically; navigate anyway
-                      // so the user isn't blocked. Show a non-blocking notice.
-                      Alert.alert(
-                        "Almost there",
-                        "Your setup is saved locally. The dashboard is now active.",
-                        [{ text: "Go to Dashboard", onPress: () => router.replace("/(tabs)" as any) }]
-                      );
-                    },
-                  });
-                }}
-                disabled={isCompleting}
+                onPress={() => router.push("/guide-register" as any)}
                 accessibilityRole="button"
-                accessibilityLabel="Go to your compliance dashboard"
+                accessibilityLabel="Create your compliance account"
               >
-                {isCompleting ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <>
-                    <MaterialIcons name="dashboard" size={18} color="#fff" />
-                    <Text style={s.finishBtnText}>Go to Dashboard</Text>
-                  </>
-                )}
+                <MaterialIcons name="person-add" size={18} color="#fff" />
+                <Text style={s.createBtnText}>Create Your Compliance Account</Text>
+              </Pressable>
+
+              {/* ── SECONDARY: continue browsing the guide ── */}
+              <Pressable
+                style={s.laterBtn}
+                onPress={() =>
+                  Alert.alert(
+                    "You can register later",
+                    "Your progress is saved on this device. Come back any time to create your account.",
+                    [{ text: "OK" }]
+                  )
+                }
+              >
+                <Text style={s.laterBtnText}>Remind me later</Text>
               </Pressable>
             </View>
           </View>
@@ -451,167 +668,146 @@ const s = StyleSheet.create({
   scroll:        { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 16 },
 
-  // Hero
   hero: {
-    flexDirection:    "row",
-    alignItems:       "center",
-    backgroundColor:  C.surface,
-    borderRadius:     16,
-    padding:          18,
-    borderWidth:      1,
-    borderColor:      C.borderSoft,
-    borderLeftWidth:  4,
-    borderLeftColor:  C.teal,
-    marginBottom:     12,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: C.surface,
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: C.borderSoft,
+    borderLeftWidth: 4,
+    borderLeftColor: C.teal,
+    marginBottom: 10,
   },
-  heroLeft:      { flex: 1, gap: 4 },
-  heroEyebrow:   { fontSize: 9, fontFamily: "PublicSans_700Bold", color: C.teal, letterSpacing: 1.4, textTransform: "uppercase" },
-  heroTitle:     { fontSize: 20, fontFamily: "PublicSans_700Bold", color: C.primary, lineHeight: 26 },
-  heroSub:       { fontSize: 12, fontFamily: "PublicSans_400Regular", color: C.muted, lineHeight: 17, marginTop: 2 },
-  heroPct:       { alignItems: "center", justifyContent: "center", width: 64, height: 64, borderRadius: 32, backgroundColor: C.tealBg, borderWidth: 3, borderColor: C.teal, marginLeft: 12 },
-  heroPctNum:    { fontSize: 18, fontFamily: "PublicSans_700Bold", color: C.tealDark },
-  heroPctLabel:  { fontSize: 10, fontFamily: "PublicSans_600SemiBold", color: C.teal, marginTop: -2 },
+  heroLeft:    { flex: 1, gap: 4 },
+  heroEyebrow: {
+    fontSize: 9, fontFamily: "PublicSans_700Bold", color: C.teal,
+    letterSpacing: 1.4, textTransform: "uppercase",
+  },
+  heroTitle:   { fontSize: 20, fontFamily: "PublicSans_700Bold", color: C.primary, lineHeight: 26 },
+  heroSub:     {
+    fontSize: 12, fontFamily: "PublicSans_400Regular", color: C.muted,
+    lineHeight: 17, marginTop: 2,
+  },
+  heroPct: {
+    alignItems: "center", justifyContent: "center",
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: C.tealBg, borderWidth: 3, borderColor: C.teal, marginLeft: 12,
+  },
+  heroPctNum:   { fontSize: 18, fontFamily: "PublicSans_700Bold", color: C.tealDark },
+  heroPctLabel: { fontSize: 10, fontFamily: "PublicSans_600SemiBold", color: C.teal, marginTop: -2 },
 
-  // Overall bar
+  noticeBanner: {
+    flexDirection: "row", alignItems: "flex-start", gap: 8,
+    backgroundColor: C.tealLight,
+    borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9,
+    marginBottom: 12, borderWidth: 1, borderColor: C.teal + "33",
+  },
+  noticeText: {
+    flex: 1, fontSize: 12, fontFamily: "PublicSans_400Regular",
+    color: C.tealDark, lineHeight: 17,
+  },
+
   overallBarWrap:  { marginBottom: 16, gap: 6 },
   overallBarTrack: { height: 8, backgroundColor: C.containerLow, borderRadius: 4, overflow: "hidden" },
   overallBarFill:  { height: 8, borderRadius: 4 },
-  overallBarLabel: { fontSize: 11, fontFamily: "PublicSans_600SemiBold", color: C.muted, textAlign: "right" },
+  overallBarLabel: {
+    fontSize: 11, fontFamily: "PublicSans_600SemiBold", color: C.muted, textAlign: "right",
+  },
 
-  // Offline banner
-  offlineBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: C.amberBg, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 12, borderWidth: 1, borderColor: "#F5D78E" },
-  offlineText:   { flex: 1, fontSize: 12, fontFamily: "PublicSans_400Regular", color: C.amber, lineHeight: 17 },
+  phases: { gap: 10 },
 
-  // Phase accordion
-  phases:       { gap: 10 },
-  phaseWrap:    { borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: C.border },
-  phaseHeader:  { flexDirection: "row", alignItems: "center", paddingVertical: 14, paddingHorizontal: 14, backgroundColor: C.surface, gap: 12 },
+  phaseWrap:       { borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: C.border },
+  phaseHeader:     {
+    flexDirection: "row", alignItems: "center",
+    paddingVertical: 14, paddingHorizontal: 14,
+    backgroundColor: C.surface, gap: 12,
+  },
   phaseHeaderDone: { backgroundColor: C.secondaryBg + "55" },
   phaseHeaderOpen: { backgroundColor: C.tealLight },
 
-  phaseIconWrap:        { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  phaseIconWrap:        {
+    width: 40, height: 40, borderRadius: 12,
+    alignItems: "center", justifyContent: "center",
+  },
   phaseIconWrapDefault: { backgroundColor: C.containerLow },
   phaseIconWrapDone:    { backgroundColor: C.secondaryBg },
 
   phaseLabelCol: { flex: 1, gap: 2 },
-  phaseNum:      { fontSize: 9, fontFamily: "PublicSans_700Bold", color: C.muted, letterSpacing: 1.2, textTransform: "uppercase" },
-  phaseLabel:    { fontSize: 14, fontFamily: "PublicSans_700Bold", color: C.primary },
-  phaseLabelDone:{ color: C.secondaryText },
-  phaseLabelOpen:{ color: C.tealDark },
-  phaseBarTrack: { height: 4, backgroundColor: C.containerLow, borderRadius: 2, overflow: "hidden", marginTop: 4 },
-  phaseBarFill:  { height: 4, borderRadius: 2 },
+  phaseNum:      {
+    fontSize: 9, fontFamily: "PublicSans_700Bold",
+    color: C.muted, letterSpacing: 1.2, textTransform: "uppercase",
+  },
+  phaseLabel:     { fontSize: 14, fontFamily: "PublicSans_700Bold", color: C.primary },
+  phaseLabelDone: { color: C.secondaryText },
+  phaseLabelOpen: { color: C.tealDark },
+  phaseBarTrack:  {
+    height: 4, backgroundColor: C.containerLow, borderRadius: 2, overflow: "hidden", marginTop: 4,
+  },
+  phaseBarFill:   { height: 4, borderRadius: 2 },
 
-  phaseRight:    { alignItems: "center", gap: 4 },
-  phaseCount:    { fontSize: 12, fontFamily: "PublicSans_700Bold", color: C.muted },
+  phaseRight:  { alignItems: "center", gap: 4 },
+  phaseCount:  { fontSize: 12, fontFamily: "PublicSans_700Bold", color: C.muted },
 
-  // Steps list
-  stepsBody:    { overflow: "hidden" },
-  stepsContent: { backgroundColor: C.containerLow, paddingHorizontal: 14, paddingVertical: 8 },
+  stepsBody:        { overflow: "hidden" },
+  stepsContent:     { backgroundColor: C.containerLow, paddingHorizontal: 14, paddingVertical: 8 },
   stepsContentDone: { backgroundColor: C.secondaryBg + "22" },
 
   stepDivider: { height: 1, backgroundColor: C.borderSoft, marginVertical: 2 },
   stepRow:     { flexDirection: "row", alignItems: "center", paddingVertical: 10, gap: 12 },
-  stepIcon:    { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", borderWidth: 1.5 },
-  stepIconDone:   { backgroundColor: C.secondaryBg, borderColor: C.secondaryText },
-  stepIconPending:{ backgroundColor: C.surface, borderColor: C.border },
-  stepDot:     { width: 8, height: 8, borderRadius: 4, backgroundColor: C.border },
-  stepBody:    { flex: 1, gap: 2 },
-  stepTitle:   { fontSize: 13, fontFamily: "PublicSans_600SemiBold", color: C.primary, lineHeight: 18 },
-  stepTitleDone:{ color: C.muted, textDecorationLine: "line-through" },
-  stepDocs:    { fontSize: 11, fontFamily: "PublicSans_400Regular", color: C.muted },
+  stepIcon:    {
+    width: 28, height: 28, borderRadius: 14,
+    alignItems: "center", justifyContent: "center", borderWidth: 1.5,
+  },
+  stepIconDone:    { backgroundColor: C.secondaryBg, borderColor: C.secondaryText },
+  stepIconPending: { backgroundColor: C.surface, borderColor: C.border },
+  stepDot:         { width: 8, height: 8, borderRadius: 4, backgroundColor: C.border },
+  stepBody:        { flex: 1, gap: 2 },
+  stepTitle:       {
+    fontSize: 13, fontFamily: "PublicSans_600SemiBold", color: C.primary, lineHeight: 18,
+  },
+  stepTitleDone:   { color: C.muted, textDecorationLine: "line-through" },
+  stepDocs:        { fontSize: 11, fontFamily: "PublicSans_400Regular", color: C.muted },
 
-  // Error
-  errorBox:   { alignItems: "center", paddingVertical: 40, gap: 10 },
-  errorTitle: { fontSize: 16, fontFamily: "PublicSans_700Bold", color: C.primary },
-  errorDesc:  { fontSize: 13, fontFamily: "PublicSans_400Regular", color: C.muted, textAlign: "center" },
-  retryBtn:   { marginTop: 8, backgroundColor: C.teal, borderRadius: 10, paddingHorizontal: 28, paddingVertical: 11 },
-  retryText:  { fontSize: 14, fontFamily: "PublicSans_700Bold", color: "#fff" },
-
-  // FE-26 — Celebration card
+  // Celebration / CTA
   celebrationCard: {
-    backgroundColor: C.surface,
-    borderRadius: 16,
-    marginTop: 16,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: C.secondary + "55",
+    backgroundColor: C.surface, borderRadius: 16, marginTop: 16,
+    overflow: "hidden", borderWidth: 1, borderColor: C.secondary + "55",
   },
-  celebrationStrip: {
-    flexDirection: "row",
-    height: 8,
-    overflow: "hidden",
-  },
-  celebrationDot: {
-    flex: 1,
-  },
-  celebrationBody: {
-    padding: 20,
-    gap: 12,
-    alignItems: "center",
-  },
+  celebrationStrip: { flexDirection: "row", height: 8, overflow: "hidden" },
+  celebrationDot:   { flex: 1 },
+  celebrationBody:  { padding: 20, gap: 12, alignItems: "center" },
   celebrationIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: C.secondaryBg,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: C.secondary + "55",
+    width: 60, height: 60, borderRadius: 30,
+    backgroundColor: C.secondaryBg, alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: C.secondary + "55",
   },
   celebrationTitle: {
-    fontSize: 20,
-    fontFamily: "PublicSans_700Bold",
-    color: C.primary,
-    textAlign: "center",
+    fontSize: 20, fontFamily: "PublicSans_700Bold", color: C.primary, textAlign: "center",
   },
   celebrationSub: {
-    fontSize: 13,
-    fontFamily: "PublicSans_400Regular",
-    color: C.mid,
-    textAlign: "center",
-    lineHeight: 20,
+    fontSize: 13, fontFamily: "PublicSans_400Regular",
+    color: C.mid, textAlign: "center", lineHeight: 20,
   },
-  activatedList: {
-    alignSelf: "stretch",
-    backgroundColor: C.containerLow,
-    borderRadius: 12,
-    padding: 14,
-    gap: 8,
+  createBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: C.teal, borderRadius: 14,
+    paddingVertical: 15, paddingHorizontal: 20, alignSelf: "stretch",
   },
-  activatedRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+  createBtnText: {
+    fontSize: 15, fontFamily: "PublicSans_700Bold", color: "#fff", letterSpacing: 0.3,
   },
-  activatedLabel: {
-    fontSize: 13,
-    fontFamily: "PublicSans_600SemiBold",
-    color: C.secondaryText,
-  },
-  finishBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: C.secondary,
-    borderRadius: 14,
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-    alignSelf: "stretch",
-  },
-  finishBtnDisabled: {
-    opacity: 0.6,
-  },
-  finishBtnText: {
-    fontSize: 15,
-    fontFamily: "PublicSans_700Bold",
-    color: "#fff",
-    letterSpacing: 0.3,
+  laterBtn: { paddingVertical: 6, paddingHorizontal: 12 },
+  laterBtnText: {
+    fontSize: 13, fontFamily: "PublicSans_600SemiBold", color: C.muted, textDecorationLine: "underline",
   },
 
-  // Skeleton
-  skelPhase: { flexDirection: "row", alignItems: "center", backgroundColor: C.surface, borderRadius: 14, padding: 14, gap: 12, borderWidth: 1, borderColor: C.border },
+  skelPhase: {
+    flexDirection: "row", alignItems: "center",
+    backgroundColor: C.surface, borderRadius: 14, padding: 14, gap: 12,
+    borderWidth: 1, borderColor: C.border,
+  },
   skelIcon:  { width: 40, height: 40, borderRadius: 12, backgroundColor: C.border },
   skelLine:  { backgroundColor: C.border, borderRadius: 4 },
 });

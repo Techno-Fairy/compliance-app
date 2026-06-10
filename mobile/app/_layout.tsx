@@ -44,16 +44,37 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <AppServices />
         <Stack screenOptions={{ headerShown: false }}>
+          {/* ── Root landing — replaces the old redirect-only index ── */}
           <Stack.Screen name="index" />
-          <Stack.Screen name="business-profile" />
+
+          {/* ── Auth (existing, unchanged) ── */}
           <Stack.Screen name="(auth)" />
+
+          {/* ── Authenticated area (existing, unchanged) ── */}
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="add-task" options={{ presentation: "modal" }} />
           <Stack.Screen name="history" />
           <Stack.Screen name="knowledge-base" />
           <Stack.Screen name="notification-preferences" />
           <Stack.Screen name="client-switcher" />
-          <Stack.Screen name="starter-guide" options={{ animation: "slide_from_bottom" }} />
+          <Stack.Screen name="business-profile" />
+
+          {/* ── PUBLIC — no JWT required ── */}
+          {/* The accordion overview screen */}
+          <Stack.Screen
+            name="starter-guide"
+            options={{ animation: "slide_from_bottom", gestureEnabled: true }}
+          />
+          {/* Individual step detail screen */}
+          <Stack.Screen
+            name="starter-guide/[id]"
+            options={{ animation: "slide_from_right" }}
+          />
+          {/* Registration screen shown at the end of the guide */}
+          <Stack.Screen
+            name="guide-register"
+            options={{ animation: "slide_from_right" }}
+          />
         </Stack>
       </QueryClientProvider>
     </GestureHandlerRootView>

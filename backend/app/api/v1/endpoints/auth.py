@@ -1,3 +1,4 @@
+# backend/app/api/v1/endpoints/auth.py
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -9,11 +10,14 @@ from app.core.security import (
     verify_password,
 )
 from app.db.database import get_db
+from app.models.business import BusinessProfile, CompanyType
+from app.models.onboarding import OnboardingProgress, OnboardingStep
 from app.models.user import User
 from app.schemas.auth import (
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
+    RegisterWithProfileRequest,
     TokenResponse,
 )
 
@@ -28,6 +32,7 @@ def _tokens(user: User) -> TokenResponse:
     )
 
 
+# ── Existing register (unchanged) ────────────────────────────────────────────
 @router.post(
     "/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED
 )
@@ -52,6 +57,81 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
     return _tokens(user)
 
 
+# ── Step 4: register-with-profile (used after completing Starter Guide) ───────
+@router.post(
+    "/register-with-profile",
+    response_model=TokenResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def register_with_profile(
+    body: RegisterWithProfileRequest, db: Session = Depends(get_db)
+):
+    """
+    One-shot registration for users who completed the public Starter Guide.
+
+    Creates:
+      1. User account
+      2. BusinessProfile with all supplied details
+         → is_onboarding_complete = True  (guide was completed offline)
+
+    The `after_insert` trigger on BusinessProfile normally seeds
+    onboarding_progress rows with completed=False.  We override them all
+    to completed=True immediately after the insert so the backend state
+    matches what the user achieved in the guide.
+
+    The frontend follows up with POST /onboarding/sync-local-progress to
+    supply accurate completed_at timestamps from the local SQLite store.
+    """
+    # ── 1. Check email uniqueness ─────────────────────────────────────────
+    if db.query(User).filter(User.email == body.email).first():
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "VALIDATION_ERROR",
+                "message": "Email already registered.",
+                "field": "email",
+            },
+        )
+
+    # ── 2. Create user ────────────────────────────────────────────────────
+    user = User(
+        full_name=body.full_name,
+        email=body.email,
+        hashed_password=hash_password(body.password),
+    )
+    db.add(user)
+    db.flush()  # assigns user.id without committing
+
+    # ── 3. Create BusinessProfile (is_onboarding_complete = True) ─────────
+    profile = BusinessProfile(
+        owner_id=user.id,
+        business_name=body.business_name,
+        company_type=CompanyType(body.company_type),
+        cipa_number=body.cipa_number,
+        burs_tin=body.burs_tin,
+        vat_registered=body.vat_registered,
+        vat_filing_monthly=body.vat_filing_monthly,
+        is_onboarding_complete=True,
+    )
+    db.add(profile)
+    db.flush()  # assigns profile.id; triggers after_insert → seeds progress rows
+
+    # ── 4. Override all seeded rows to completed=True ─────────────────────
+    # The after_insert trigger already inserted rows with completed=False.
+    # We bulk-update them here so the backend immediately reflects completion.
+    db.query(OnboardingProgress).filter(
+        OnboardingProgress.business_id == profile.id
+    ).update(
+        {"completed": True},
+        synchronize_session=False,
+    )
+
+    db.commit()
+    db.refresh(user)
+    return _tokens(user)
+
+
+# ── Existing login (unchanged) ────────────────────────────────────────────────
 @router.post("/login", response_model=TokenResponse)
 def login(body: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == body.email).first()
@@ -63,6 +143,7 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
     return _tokens(user)
 
 
+# ── Existing refresh (unchanged) ─────────────────────────────────────────────
 @router.post("/refresh", response_model=TokenResponse)
 def refresh_token(body: RefreshRequest):
     try:

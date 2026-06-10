@@ -1,21 +1,14 @@
 /**
- * app/starter-guide/[id].tsx — FE-25
+ * app/starter-guide/[id].tsx — FE-25 (revised: Steps 1-2)
  *
- * Step detail screen for the Business Starter Guide.
- * Accessible from: StarterGuideScreen (FE-24) > PhaseAccordion > StepRow tap
+ * PUBLIC — no JWT required.
  *
- * Shows:
- *  - Phase badge + step title
- *  - Plain-language description
- *  - Required documents checklist (read-only; informational per PRD)
- *  - Portal deep link button (Linking.openURL)
- *  - Mark Complete / Mark Incomplete toggle with confirm dialog
- *    → PATCH /onboarding/steps/{step_id} via useMarkStepComplete
- *
- * Design system: PublicSans, C tokens, TopBar (showBack).
+ * Changes from original:
+ *  • Step data comes from the static STATIC_STEPS map (no API call).
+ *  • Mark Complete / Incomplete writes to SQLite via localOnboardingProgress.ts.
+ *  • No useMarkStepComplete mutation (that's the authenticated hook).
  */
-
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -32,11 +25,14 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useOnboardingSteps, useMarkStepComplete } from "@/hooks/useOnboardingProgress";
 import { TopBar } from "@/components/ui/TopBar";
+import {
+  getLocalProgress,
+  markLocalStep,
+} from "@/lib/localOnboardingProgress";
 import type { OnboardingStep } from "@/types";
 
-// ── Design tokens ─────────────────────────────────────────────────────────────
+// ── Design tokens ──────────────────────────────────────────────────────────────
 const C = {
   bg:            "#f3faff",
   surface:       "#ffffff",
@@ -69,328 +65,212 @@ const PHASE_LABELS: Record<number, string> = {
   4: "Activate Ongoing Compliance",
 };
 
-// ── Small helper: cross-platform toast ───────────────────────────────────────
+// ── Static step catalogue (mirrors starter-guide.tsx) ─────────────────────────
+// (Centralise to a shared lib if the project grows.)
+const STATIC_STEPS: Record<number, OnboardingStep> = {
+  1:  { id: 1,  phase: 1, step_number: 1, completed: false, completed_at: null, title: "Reserve your company / business name",         portal_url: "https://obrs.gov.bw",               documents: ["3 proposed names", "ID copy", "BWP 80 reservation fee"],                                                    description: "Choose at least three proposed names and submit them to CIPA via OBRS. CIPA checks availability and reserves the approved name for 30 days." },
+  2:  { id: 2,  phase: 1, step_number: 2, completed: false, completed_at: null, title: "Incorporate or register the business",           portal_url: "https://obrs.gov.bw",               documents: ["Memorandum & Articles (Pty Ltd) OR registration form (sole trader/partnership)", "ID copies for all directors / partners", "Registered office address proof"],  description: "Pty Ltd: file Memorandum & Articles of Association. Sole trader or partnership: complete the relevant CIPA registration form." },
+  3:  { id: 3,  phase: 1, step_number: 3, completed: false, completed_at: null, title: "Collect Certificate of Incorporation / Registration", portal_url: "https://obrs.gov.bw",          documents: ["CIPA certificate (download or collect in person)"],                                                      description: "Download your CIPA certificate from OBRS once issued. Keep the original — it is required for BURS registration." },
+  4:  { id: 4,  phase: 2, step_number: 1, completed: false, completed_at: null, title: "Register for a Tax Identification Number (TIN)",  portal_url: "https://eservices.burs.org.bw",    documents: ["CIPA certificate", "Director's / owner's ID copy", "Proof of business address (lease or utility bill)"],                                    description: "Register with BURS to receive your TIN. Required before you can file any tax returns. Can be done at a BURS office or via eServices." },
+  5:  { id: 5,  phase: 2, step_number: 2, completed: false, completed_at: null, title: "Assess your VAT registration obligation",         portal_url: "https://eservices.burs.org.bw",    documents: ["TIN", "Estimated annual turnover (for BURS assessment)"],                                               description: "VAT registration is compulsory if your annual turnover meets or exceeds BWP 1,000,000. You may register voluntarily below this threshold." },
+  6:  { id: 6,  phase: 2, step_number: 3, completed: false, completed_at: null, title: "Register for PAYE (if employing staff)",           portal_url: "https://eservices.burs.org.bw",    documents: ["TIN", "List of employees", "Employment contracts"],                                                      description: "If you pay salaries, you must register as a PAYE employer with BURS and remit employee tax monthly." },
+  7:  { id: 7,  phase: 2, step_number: 4, completed: false, completed_at: null, title: "Register for Withholding Tax (if applicable)",     portal_url: "https://eservices.burs.org.bw",    documents: ["TIN", "Details of non-resident payees"],                                                                 description: "Required if your business pays dividends, royalties, or management fees to non-residents." },
+  8:  { id: 8,  phase: 3, step_number: 1, completed: false, completed_at: null, title: "Obtain a Trade Licence",                          portal_url: "https://miti.gov.bw",               documents: ["CIPA certificate", "Lease agreement / proof of premises", "Completed trade licence application form", "ID copy"],                             description: "A trade licence from MITI (or your Local Council) is required before you begin trading. The type of licence depends on your business activity." },
+  9:  { id: 9,  phase: 3, step_number: 2, completed: false, completed_at: null, title: "Prepare employment contracts",                    portal_url: "https://miti.gov.bw",               documents: ["Written employment contract (one per employee)", "MITI minimum wage schedule"],                         description: "The Botswana Employment Act (s.28) requires a written employment contract within the first month of employment." },
+  10: { id: 10, phase: 3, step_number: 3, completed: false, completed_at: null, title: "Register for Workers Compensation (BOCCIM)",      portal_url: "https://boccim.co.bw",              documents: ["CIPA certificate", "List of employees"],                                                                 description: "Optional but strongly recommended. Provides employer liability cover for workplace injuries." },
+  11: { id: 11, phase: 3, step_number: 4, completed: false, completed_at: null, title: "Set up payroll and leave records",                portal_url: null,                                documents: ["Payroll register (spreadsheet or software)", "Leave record per employee"],                              description: "The Labour Act requires written leave records. Set up a payroll spreadsheet or accounting software to track salaries, leave balances, and deductions." },
+  12: { id: 12, phase: 4, step_number: 1, completed: false, completed_at: null, title: "Create your CompliancePro account",               portal_url: null,                                documents: ["CIPA number", "BURS TIN"],                                                                                description: "Create your account and add your CIPA number, TIN, and VAT status. CompliancePro will seed your personalised compliance calendar." },
+  13: { id: 13, phase: 4, step_number: 2, completed: false, completed_at: null, title: "Review your pre-seeded compliance calendar",      portal_url: null,                                documents: [],                                                                                                        description: "Check that all your BURS, CIPA, and Labour Act deadlines are correct. Add any custom obligations specific to your business." },
+  14: { id: 14, phase: 4, step_number: 3, completed: false, completed_at: null, title: "Enable push notifications",                       portal_url: null,                                documents: [],                                                                                                        description: "Allow notifications so CompliancePro can alert you 30, 14, and 3 days before each deadline." },
+  15: { id: 15, phase: 4, step_number: 4, completed: false, completed_at: null, title: "Activate your compliance dashboard",              portal_url: null,                                documents: [],                                                                                                        description: "Your health score is now live. Upload your first compliance document to start building your evidence trail." },
+};
+
 function showToast(message: string) {
   if (Platform.OS === "android") {
     ToastAndroid.show(message, ToastAndroid.SHORT);
   } else {
-    // On iOS fall back to a brief Alert — a production app would use
-    // a custom toast lib here, but this keeps zero extra dependencies.
     Alert.alert("", message);
   }
 }
 
-// ── Document row (read-only) ──────────────────────────────────────────────────
-function DocumentRow({ label }: { label: string }) {
-  return (
-    <View style={s.docRow}>
-      <View style={s.docIcon}>
-        <MaterialIcons name="description" size={14} color={C.teal} />
-      </View>
-      <Text style={s.docLabel}>{label}</Text>
-    </View>
-  );
-}
-
-// ── Portal button ─────────────────────────────────────────────────────────────
-function PortalButton({ url }: { url: string }) {
-  const handlePress = useCallback(() => {
-    Linking.canOpenURL(url)
-      .then((supported) => {
-        if (supported) {
-          return Linking.openURL(url);
-        }
-        Alert.alert(
-          "Cannot open link",
-          "Please visit the portal manually in your browser.",
-          [{ text: "OK" }]
-        );
-      })
-      .catch(() =>
-        Alert.alert("Error", "Could not open the portal. Please try again.")
-      );
-  }, [url]);
-
-  // Extract a readable domain label from the URL
-  let domainLabel = url;
-  try {
-    domainLabel = new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    // keep raw url
-  }
-
-  return (
-    <Pressable
-      style={({ pressed }) => [s.portalBtn, pressed && { opacity: 0.75 }]}
-      onPress={handlePress}
-      accessibilityRole="link"
-      accessibilityLabel={`Open portal: ${domainLabel}`}
-    >
-      <MaterialIcons name="open-in-browser" size={18} color={C.teal} />
-      <View style={s.portalBtnBody}>
-        <Text style={s.portalBtnText}>Open Portal</Text>
-        <Text style={s.portalBtnSub} numberOfLines={1}>{domainLabel}</Text>
-      </View>
-      <MaterialIcons name="chevron-right" size={20} color={C.teal} />
-    </Pressable>
-  );
-}
-
-// ── Step detail content (rendered once the step is resolved) ──────────────────
-function StepDetail({
-  step,
-  onMarkToggle,
-  isPending,
-}: {
-  step: OnboardingStep;
-  onMarkToggle: () => void;
-  isPending: boolean;
-}) {
-  const phaseLabel = PHASE_LABELS[step.phase] ?? `Phase ${step.phase}`;
-
-  return (
-    <>
-      {/* Phase + step number badge */}
-      <View style={s.badgeRow}>
-        <View style={s.phaseBadge}>
-          <Text style={s.phaseBadgeText}>PHASE {step.phase}</Text>
-        </View>
-        <View style={s.stepNumBadge}>
-          <Text style={s.stepNumText}>Step {step.step_number}</Text>
-        </View>
-      </View>
-
-      {/* Phase label */}
-      <Text style={s.phaseLabel}>{phaseLabel}</Text>
-
-      {/* Step title */}
-      <Text style={s.stepTitle}>{step.title}</Text>
-
-      {/* Completion status chip */}
-      {step.completed && (
-        <View style={s.completedBanner}>
-          <MaterialIcons name="check-circle" size={16} color={C.secondaryText} />
-          <Text style={s.completedBannerText}>
-            Step completed{step.completed_at ? ` · ${new Date(step.completed_at).toLocaleDateString("en-BW", { day: "numeric", month: "short", year: "numeric" })}` : ""}
-          </Text>
-        </View>
-      )}
-
-      {/* Description */}
-      <View style={s.section}>
-        <Text style={s.sectionTitle}>What to do</Text>
-        <Text style={s.description}>{step.description}</Text>
-      </View>
-
-      {/* Documents checklist */}
-      {step.documents.length > 0 && (
-        <View style={s.section}>
-          <View style={s.sectionHeader}>
-            <MaterialIcons name="folder-open" size={16} color={C.teal} />
-            <Text style={s.sectionTitle}>Documents required</Text>
-            <View style={s.docCount}>
-              <Text style={s.docCountText}>{step.documents.length}</Text>
-            </View>
-          </View>
-          <Text style={s.sectionSub}>
-            Gather these before visiting the portal or office.
-          </Text>
-          <View style={s.docList}>
-            {step.documents.map((doc, idx) => (
-              <DocumentRow key={idx} label={doc} />
-            ))}
-          </View>
-        </View>
-      )}
-
-      {/* Portal deep link */}
-      {!!step.portal_url && (
-        <View style={s.section}>
-          <Text style={s.sectionTitle}>Portal</Text>
-          <PortalButton url={step.portal_url} />
-        </View>
-      )}
-
-      {/* Mark Complete / Incomplete button */}
-      <View style={s.actionSection}>
-        {step.completed ? (
-          <>
-            <View style={s.doneCard}>
-              <MaterialIcons name="verified" size={22} color={C.secondaryText} />
-              <Text style={s.doneCardText}>This step is marked as complete.</Text>
-            </View>
-            <Pressable
-              style={({ pressed }) => [s.undoBtn, pressed && { opacity: 0.75 }, isPending && s.btnDisabled]}
-              onPress={onMarkToggle}
-              disabled={isPending}
-              accessibilityRole="button"
-              accessibilityLabel="Mark step as incomplete"
-            >
-              {isPending ? (
-                <ActivityIndicator size="small" color={C.muted} />
-              ) : (
-                <>
-                  <MaterialIcons name="undo" size={16} color={C.muted} />
-                  <Text style={s.undoBtnText}>Mark as Incomplete</Text>
-                </>
-              )}
-            </Pressable>
-          </>
-        ) : (
-          <Pressable
-            style={({ pressed }) => [s.markCompleteBtn, pressed && { opacity: 0.82 }, isPending && s.btnDisabled]}
-            onPress={onMarkToggle}
-            disabled={isPending}
-            accessibilityRole="button"
-            accessibilityLabel="Mark step as complete"
-          >
-            {isPending ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <MaterialIcons name="check-circle" size={18} color="#fff" />
-                <Text style={s.markCompleteBtnText}>Mark Step Complete</Text>
-              </>
-            )}
-          </Pressable>
-        )}
-      </View>
-    </>
-  );
-}
-
-// ── Skeleton loader ───────────────────────────────────────────────────────────
-function StepSkeleton() {
-  return (
-    <View style={{ gap: 14, opacity: 0.45 }}>
-      <View style={{ flexDirection: "row", gap: 8 }}>
-        <View style={[s.skel, { width: 80, height: 22, borderRadius: 11 }]} />
-        <View style={[s.skel, { width: 60, height: 22, borderRadius: 11 }]} />
-      </View>
-      <View style={[s.skel, { width: 120, height: 13 }]} />
-      <View style={[s.skel, { width: "85%", height: 22 }]} />
-      <View style={[s.skel, { width: "100%", height: 80, borderRadius: 12 }]} />
-      <View style={[s.skel, { width: "100%", height: 120, borderRadius: 12 }]} />
-    </View>
-  );
-}
-
-// ── Main screen ───────────────────────────────────────────────────────────────
-export default function StepDetailScreen() {
+export default function StarterGuideStepDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const stepId = Number(id);
 
-  const { data, isLoading, isError } = useOnboardingSteps();
-  const { mutate: markStep, isPending } = useMarkStepComplete();
+  const stepId = parseInt(id ?? "0", 10);
+  const baseStep = STATIC_STEPS[stepId];
 
-  // Resolve the step from the cached phases data
-  const step: OnboardingStep | undefined = data?.phases
-    .flatMap((p) => p.steps)
-    .find((s) => s.id === stepId);
+  const [completed, setCompleted] = useState(false);
+  const [completedAt, setCompletedAt] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [ready, setReady] = useState(false);
 
-  const handleMarkToggle = useCallback(() => {
-    if (!step) return;
+  // Load local completion state
+  useEffect(() => {
+    getLocalProgress().then((map) => {
+      const local = map[stepId];
+      setCompleted(local?.completed ?? false);
+      setCompletedAt(local?.completed_at ?? null);
+      setReady(true);
+    });
+  }, [stepId]);
 
-    const toComplete = !step.completed;
+  const handleToggle = useCallback(
+    (targetValue: boolean) => {
+      const title = targetValue ? "Mark as Complete?" : "Mark as Incomplete?";
+      const message = targetValue
+        ? "Confirm you have finished this step."
+        : "This will unmark the step as complete.";
 
-    if (toComplete) {
-      Alert.alert(
-        "Mark step as done?",
-        `Confirm you have completed:\n\n"${step.title}"`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Mark Complete",
-            onPress: () => {
-              markStep(
-                { stepId: step.id, completed: true },
-                {
-                  onSuccess: () => {
-                    showToast("Step marked as complete");
-                  },
-                  onError: (err: Error) => {
-                    // Offline-queued is intentional — the hook already showed
-                    // the optimistic update; just confirm to the user.
-                    if ((err as unknown as { isOfflineQueued?: boolean }).isOfflineQueued) {
-                      showToast("Saved offline — will sync when back online");
-                      return;
-                    }
-                    Alert.alert(
-                      "Could not save",
-                      "Your change was not saved. Please check your connection and try again.",
-                      [{ text: "OK" }]
-                    );
-                  },
-                }
-              );
-            },
-          },
-        ]
-      );
-    } else {
-      // Undo: no confirmation required, just toggle back
-      markStep(
-        { stepId: step.id, completed: false },
+      Alert.alert(title, message, [
+        { text: "Cancel", style: "cancel" },
         {
-          onSuccess: () => showToast("Step marked as incomplete"),
-          onError: (err: Error) => {
-            if ((err as unknown as { isOfflineQueued?: boolean }).isOfflineQueued) {
-              showToast("Saved offline — will sync when back online");
-              return;
-            }
-            Alert.alert("Could not save", "Please check your connection and try again.");
+          text: "Confirm",
+          onPress: async () => {
+            setSaving(true);
+            await markLocalStep(stepId, targetValue);
+            setCompleted(targetValue);
+            setCompletedAt(targetValue ? new Date().toISOString() : null);
+            setSaving(false);
+            showToast(targetValue ? "Step marked complete ✓" : "Step unmarked");
           },
-        }
-      );
-    }
-  }, [step, markStep]);
+        },
+      ]);
+    },
+    [stepId]
+  );
+
+  if (!baseStep) {
+    return (
+      <SafeAreaView style={s.safe}>
+        <TopBar title="Step Detail" showBack />
+        <View style={s.errorBox}>
+          <MaterialIcons name="error-outline" size={40} color={C.error} />
+          <Text style={s.errorTitle}>Step not found</Text>
+          <Pressable style={s.retryBtn} onPress={() => router.back()}>
+            <Text style={s.retryText}>Go Back</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const step: OnboardingStep = { ...baseStep, completed, completed_at: completedAt };
 
   return (
-    <SafeAreaView style={s.safe} edges={["top"]}>
-      <StatusBar barStyle="dark-content" backgroundColor={C.container} />
-      <TopBar showBack />
+    <SafeAreaView style={s.safe}>
+      <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
+      <TopBar title={`Phase ${step.phase}: ${PHASE_LABELS[step.phase]}`} showBack />
 
       <ScrollView
         style={s.scroll}
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Loading skeleton */}
-        {isLoading && !data && <StepSkeleton />}
+        {/* ── Status banner ── */}
+        {step.completed && (
+          <View style={s.successBanner}>
+            <MaterialIcons name="check-circle" size={18} color={C.secondaryText} />
+            <View style={{ flex: 1 }}>
+              <Text style={s.successTitle}>Step complete</Text>
+              {completedAt && (
+                <Text style={s.successDate}>
+                  {new Date(completedAt).toLocaleDateString("en-BW", {
+                    day: "numeric", month: "short", year: "numeric",
+                  })}
+                </Text>
+              )}
+            </View>
+          </View>
+        )}
 
-        {/* Error state */}
-        {isError && !data && (
-          <View style={s.errorBox}>
-            <MaterialIcons name="wifi-off" size={40} color={C.error} />
-            <Text style={s.errorTitle}>Could not load step</Text>
-            <Text style={s.errorDesc}>Check your connection and try again.</Text>
-            <Pressable style={s.retryBtn} onPress={() => router.back()}>
-              <Text style={s.retryText}>Go Back</Text>
+        {/* ── Title ── */}
+        <View style={s.titleCard}>
+          <View style={s.stepBadge}>
+            <Text style={s.stepBadgeText}>
+              Step {step.step_number}
+            </Text>
+          </View>
+          <Text style={s.stepTitle}>{step.title}</Text>
+        </View>
+
+        {/* ── Description ── */}
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>What to do</Text>
+          <Text style={s.description}>{step.description}</Text>
+        </View>
+
+        {/* ── Documents ── */}
+        {step.documents.length > 0 && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>Documents you'll need</Text>
+            <View style={s.docList}>
+              {step.documents.map((doc, idx) => (
+                <View key={idx} style={s.docRow}>
+                  <MaterialIcons name="description" size={16} color={C.teal} />
+                  <Text style={s.docText}>{doc}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* ── Portal link ── */}
+        {step.portal_url && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>Online portal</Text>
+            <Pressable
+              style={({ pressed }) => [s.portalBtn, pressed && { opacity: 0.82 }]}
+              onPress={() => Linking.openURL(step.portal_url!)}
+            >
+              <MaterialIcons name="open-in-new" size={18} color="#fff" />
+              <Text style={s.portalBtnText}>
+                Open{" "}
+                {step.portal_url.includes("burs") ? "BURS" :
+                 step.portal_url.includes("obrs") ? "CIPA (OBRS)" :
+                 step.portal_url.includes("miti") ? "MITI" :
+                 step.portal_url.includes("boccim") ? "BOCCIM" : "Portal"}
+              </Text>
             </Pressable>
           </View>
         )}
 
-        {/* Step not found (e.g. bad ID) */}
-        {!isLoading && !isError && data && !step && (
-          <View style={s.errorBox}>
-            <MaterialIcons name="search-off" size={40} color={C.muted} />
-            <Text style={s.errorTitle}>Step not found</Text>
-            <Text style={s.errorDesc}>This step may no longer exist.</Text>
-            <Pressable style={s.retryBtn} onPress={() => router.back()}>
-              <Text style={s.retryText}>Go Back</Text>
+        {/* ── Mark Complete / Incomplete button ── */}
+        <View style={s.actionRow}>
+          {!ready ? (
+            <ActivityIndicator color={C.teal} />
+          ) : step.completed ? (
+            <Pressable
+              style={({ pressed }) => [s.undoBtn, pressed && { opacity: 0.82 }]}
+              onPress={() => handleToggle(false)}
+              disabled={saving}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color={C.muted} />
+              ) : (
+                <>
+                  <MaterialIcons name="undo" size={18} color={C.mid} />
+                  <Text style={s.undoBtnText}>Mark as Incomplete</Text>
+                </>
+              )}
             </Pressable>
-          </View>
-        )}
-
-        {/* Step detail */}
-        {step && (
-          <StepDetail
-            step={step}
-            onMarkToggle={handleMarkToggle}
-            isPending={isPending}
-          />
-        )}
+          ) : (
+            <Pressable
+              style={({ pressed }) => [s.completeBtn, pressed && { opacity: 0.88 }]}
+              onPress={() => handleToggle(true)}
+              disabled={saving}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <MaterialIcons name="check-circle-outline" size={18} color="#fff" />
+                  <Text style={s.completeBtnText}>Mark Step as Complete</Text>
+                </>
+              )}
+            </Pressable>
+          )}
+        </View>
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -398,107 +278,71 @@ export default function StepDetailScreen() {
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  safe:         { flex: 1, backgroundColor: C.bg },
-  scroll:       { flex: 1 },
-  scrollContent:{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16 },
+  safe:          { flex: 1, backgroundColor: C.bg },
+  scroll:        { flex: 1 },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 12 },
 
-  // Badges
-  badgeRow:     { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
-  phaseBadge:   { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: C.tealBg },
-  phaseBadgeText:{ fontSize: 10, fontFamily: "PublicSans_700Bold", color: C.tealDark, letterSpacing: 1.1, textTransform: "uppercase" },
-  stepNumBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: C.containerLow, borderWidth: 1, borderColor: C.border },
-  stepNumText:  { fontSize: 10, fontFamily: "PublicSans_600SemiBold", color: C.mid },
-
-  // Title area
-  phaseLabel:   { fontSize: 11, fontFamily: "PublicSans_600SemiBold", color: C.muted, letterSpacing: 0.3, marginBottom: 6, textTransform: "uppercase" },
-  stepTitle:    { fontSize: 20, fontFamily: "PublicSans_700Bold", color: C.primary, lineHeight: 28, marginBottom: 12 },
-
-  // Completed banner
-  completedBanner: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: C.secondaryBg, borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 10,
-    marginBottom: 16, borderWidth: 1, borderColor: C.secondary + "44",
-  },
-  completedBannerText: { fontSize: 13, fontFamily: "PublicSans_600SemiBold", color: C.secondaryText, flex: 1 },
-
-  // Sections
-  section:      { marginBottom: 20 },
-  sectionHeader:{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
-  sectionTitle: { fontSize: 13, fontFamily: "PublicSans_700Bold", color: C.primary, letterSpacing: 0.2 },
-  sectionSub:   { fontSize: 12, fontFamily: "PublicSans_400Regular", color: C.muted, marginBottom: 10, lineHeight: 17 },
-  docCount:     { width: 20, height: 20, borderRadius: 10, backgroundColor: C.tealBg, alignItems: "center", justifyContent: "center", marginLeft: 2 },
-  docCountText: { fontSize: 10, fontFamily: "PublicSans_700Bold", color: C.tealDark },
-
-  description:  {
-    fontSize: 14, fontFamily: "PublicSans_400Regular", color: C.mid,
-    lineHeight: 22, backgroundColor: C.surface, borderRadius: 12,
-    padding: 14, borderWidth: 1, borderColor: C.borderSoft,
-  },
-
-  // Document list
-  docList:      { gap: 6 },
-  docRow:       {
-    flexDirection: "row", alignItems: "center", gap: 10,
-    backgroundColor: C.surface, borderRadius: 10,
-    paddingHorizontal: 12, paddingVertical: 10,
-    borderWidth: 1, borderColor: C.borderSoft,
-  },
-  docIcon:      {
-    width: 28, height: 28, borderRadius: 8,
-    backgroundColor: C.tealBg, alignItems: "center", justifyContent: "center",
-    flexShrink: 0,
-  },
-  docLabel:     { flex: 1, fontSize: 13, fontFamily: "PublicSans_400Regular", color: C.primary, lineHeight: 18 },
-
-  // Portal button
-  portalBtn:    {
-    flexDirection: "row", alignItems: "center", gap: 12,
-    backgroundColor: C.surface, borderRadius: 12,
-    paddingHorizontal: 16, paddingVertical: 14,
-    borderWidth: 1.5, borderColor: C.teal,
-  },
-  portalBtnBody:{ flex: 1 },
-  portalBtnText:{ fontSize: 14, fontFamily: "PublicSans_700Bold", color: C.tealDark },
-  portalBtnSub: { fontSize: 11, fontFamily: "PublicSans_400Regular", color: C.teal, marginTop: 1 },
-
-  // Action area
-  actionSection:{ marginTop: 4, gap: 10 },
-
-  markCompleteBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-    backgroundColor: C.teal, borderRadius: 14,
-    paddingVertical: 15, paddingHorizontal: 20,
-  },
-  markCompleteBtnText: { fontSize: 15, fontFamily: "PublicSans_700Bold", color: "#fff", letterSpacing: 0.2 },
-
-  doneCard:     {
+  successBanner: {
     flexDirection: "row", alignItems: "center", gap: 10,
     backgroundColor: C.secondaryBg, borderRadius: 12,
-    paddingHorizontal: 16, paddingVertical: 14,
-    borderWidth: 1, borderColor: C.secondary + "44",
+    paddingHorizontal: 14, paddingVertical: 10, marginBottom: 12,
+    borderWidth: 1, borderColor: C.secondary + "55",
   },
-  doneCardText: { flex: 1, fontSize: 14, fontFamily: "PublicSans_600SemiBold", color: C.secondaryText },
+  successTitle: { fontSize: 13, fontFamily: "PublicSans_700Bold", color: C.secondaryText },
+  successDate:  { fontSize: 11, fontFamily: "PublicSans_400Regular", color: C.secondary },
 
-  undoBtn:      {
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-    borderWidth: 1, borderColor: C.border, borderRadius: 10,
-    paddingVertical: 11, paddingHorizontal: 16,
-    backgroundColor: C.surface,
+  titleCard: {
+    backgroundColor: C.surface, borderRadius: 16,
+    padding: 18, marginBottom: 12,
+    borderWidth: 1, borderColor: C.borderSoft,
+    borderLeftWidth: 4, borderLeftColor: C.teal,
+    gap: 8,
   },
-  undoBtnText:  { fontSize: 13, fontFamily: "PublicSans_600SemiBold", color: C.muted },
+  stepBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: C.tealBg, borderRadius: 6,
+    paddingHorizontal: 8, paddingVertical: 3,
+  },
+  stepBadgeText: { fontSize: 11, fontFamily: "PublicSans_700Bold", color: C.teal },
+  stepTitle: { fontSize: 17, fontFamily: "PublicSans_700Bold", color: C.primary, lineHeight: 24 },
 
-  btnDisabled:  { opacity: 0.55 },
+  section: {
+    backgroundColor: C.surface, borderRadius: 14,
+    padding: 16, marginBottom: 10,
+    borderWidth: 1, borderColor: C.borderSoft, gap: 8,
+  },
+  sectionTitle: { fontSize: 12, fontFamily: "PublicSans_700Bold", color: C.teal, textTransform: "uppercase", letterSpacing: 0.8 },
+  description:  { fontSize: 14, fontFamily: "PublicSans_400Regular", color: C.mid, lineHeight: 21 },
 
-  // Error / not found
-  errorBox:     { alignItems: "center", paddingVertical: 48, gap: 10 },
-  errorTitle:   { fontSize: 16, fontFamily: "PublicSans_700Bold", color: C.primary },
-  errorDesc:    { fontSize: 13, fontFamily: "PublicSans_400Regular", color: C.muted, textAlign: "center" },
-  retryBtn:     { marginTop: 8, backgroundColor: C.teal, borderRadius: 10, paddingHorizontal: 28, paddingVertical: 11 },
-  retryText:    { fontSize: 14, fontFamily: "PublicSans_700Bold", color: "#fff" },
+  docList: { gap: 8 },
+  docRow:  { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  docText: { flex: 1, fontSize: 13, fontFamily: "PublicSans_400Regular", color: C.mid, lineHeight: 19 },
 
-  // Skeleton
-  skel:         { backgroundColor: C.border, borderRadius: 4 },
+  portalBtn: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: C.teal, borderRadius: 12,
+    paddingVertical: 12, paddingHorizontal: 16,
+  },
+  portalBtnText: { fontSize: 14, fontFamily: "PublicSans_700Bold", color: "#fff" },
+
+  actionRow:  { marginTop: 8 },
+  completeBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: C.secondary, borderRadius: 14,
+    paddingVertical: 15, paddingHorizontal: 20,
+  },
+  completeBtnText: { fontSize: 15, fontFamily: "PublicSans_700Bold", color: "#fff" },
+  undoBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: C.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: C.border,
+    paddingVertical: 13, paddingHorizontal: 20,
+  },
+  undoBtnText: { fontSize: 14, fontFamily: "PublicSans_600SemiBold", color: C.mid },
+
+  errorBox:   { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
+  errorTitle: { fontSize: 16, fontFamily: "PublicSans_700Bold", color: C.primary },
+  retryBtn:   { backgroundColor: C.teal, borderRadius: 10, paddingHorizontal: 28, paddingVertical: 11 },
+  retryText:  { fontSize: 14, fontFamily: "PublicSans_700Bold", color: "#fff" },
 });
