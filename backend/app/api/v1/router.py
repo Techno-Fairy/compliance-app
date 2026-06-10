@@ -8,6 +8,7 @@ from app.api.v1.endpoints import (
     documents,
     history,
     knowledge,
+    onboarding,
     reports,
     team,
 )
@@ -20,5 +21,6 @@ api_router.include_router(documents.router)
 api_router.include_router(history.router)
 api_router.include_router(analytics.router)
 api_router.include_router(knowledge.router)
+api_router.include_router(onboarding.router)
 api_router.include_router(reports.router)
 api_router.include_router(team.router)

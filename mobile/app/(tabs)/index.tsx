@@ -16,8 +16,10 @@ import Svg, { Polyline, Circle, Line, Text as SvgText, Defs, LinearGradient, Sto
 import { useDeadlines, useUpdateDeadlineStatus } from "@/hooks/useDeadlines";
 import { useHealthScore } from "@/hooks/useHealthScore";
 import { useTrendData, buildStaticTrend } from "@/hooks/useTrendData";
+import { useOnboardingProgress } from "@/hooks/useOnboardingProgress";
 import { PenaltyExposureModal } from "@/components/PenaltyExposureModal";
 import { ComplianceCalendarModal } from "@/components/ComplianceCalendarModal";
+import { OnboardingProgressCard } from "@/components/OnboardingProgressCard";
 import { TopBar } from "@/components/ui/TopBar";
 import type { Deadline, HealthScoreBreakdown } from "@/types";
 
@@ -480,7 +482,11 @@ export default function DashboardScreen() {
   const { data: deadlines, isLoading: dlLoading, isError: dlError, refetch: refetchDl } =
     useDeadlines(activeFilter === "ALL" ? undefined : activeFilter);
   const { data: scoreData, isLoading: scoreLoading, refetch: refetchScore } = useHealthScore();
+  const { data: onboardingData } = useOnboardingProgress();
   const { mutate: updateStatus } = useUpdateDeadlineStatus();
+
+  // FE-23: gate — show onboarding card until is_onboarding_complete = true
+  const showOnboardingCard = onboardingData ? !onboardingData.is_complete : false;
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -521,7 +527,11 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {/* Health score card — tappable (FE-21) */}
+        {/* FE-23: Onboarding card — shown when setup incomplete, hidden once done */}
+        {showOnboardingCard && <OnboardingProgressCard />}
+
+        {/* Health score card — tappable (FE-21) — hidden until onboarding complete */}
+        {!showOnboardingCard && (
         <View style={ss.scoreCard}>
           <View style={ss.scoreCardHeader}>
             <Text style={ss.scoreEyebrow}>COMPLIANCE HEALTH SCORE</Text>
@@ -552,6 +562,7 @@ export default function DashboardScreen() {
             </>
           )}
         </View>
+        )}
 
         {/* Penalty exposure tap card */}
         <Pressable style={ss.penaltyCard} onPress={() => setPenaltyVisible(true)}>

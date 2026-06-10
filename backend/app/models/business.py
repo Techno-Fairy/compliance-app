@@ -1,8 +1,8 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, event
+from sqlalchemy.orm import Mapped, mapped_column, relationship, Session
 
 from app.db.database import Base
 
@@ -39,7 +39,42 @@ class BusinessProfile(Base):
     documents: Mapped[list["Document"]] = relationship(  # noqa: F821
         back_populates="business", cascade="all, delete-orphan"
     )
-    # BE-26 (upcoming): onboarding progress rows seeded on profile creation
+    # BE-26: onboarding progress rows auto-seeded on profile creation (see listener below)
     onboarding_progress: Mapped[list["OnboardingProgress"]] = relationship(  # noqa: F821
         back_populates="business", cascade="all, delete-orphan"
     )
+
+
+# ── BE-26: Auto-seed onboarding_progress rows ────────────────────────────────
+
+@event.listens_for(BusinessProfile, "after_insert")
+def _seed_onboarding_progress(mapper, connection, target: BusinessProfile) -> None:  # noqa: ANN001
+    """
+    After a new BusinessProfile is inserted, create one OnboardingProgress row
+    per onboarding step so the frontend has a complete set of (step, completed=False)
+    rows to render immediately — no lazy-creation needed.
+
+    Uses a raw connection INSERT to avoid session entanglement during the
+    after_insert flush cycle.
+    """
+    from app.models.onboarding import OnboardingProgress, OnboardingStep  # local import avoids circular
+
+    # Fetch all step ids via the same connection (inside the active transaction)
+    step_ids = connection.execute(
+        OnboardingStep.__table__.select().with_only_columns(OnboardingStep.__table__.c.id)
+    ).scalars().all()
+
+    if not step_ids:
+        return  # Guard: migration hasn't seeded steps yet (e.g. test DB bootstrap)
+
+    rows = [
+        {
+            "business_id": target.id,
+            "step_id": step_id,
+            "completed": False,
+            "completed_at": None,
+            "completed_by": None,
+        }
+        for step_id in step_ids
+    ]
+    connection.execute(OnboardingProgress.__table__.insert(), rows)

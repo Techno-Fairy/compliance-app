@@ -53,6 +53,7 @@ export default function RootLayout() {
           <Stack.Screen name="knowledge-base" />
           <Stack.Screen name="notification-preferences" />
           <Stack.Screen name="client-switcher" />
+          <Stack.Screen name="starter-guide" options={{ animation: "slide_from_bottom" }} />
         </Stack>
       </QueryClientProvider>
     </GestureHandlerRootView>
