@@ -102,3 +102,59 @@ export interface FilingHistoryEntry {
   notes?: string | null;
   user_email?: string | null;
 }
+// ── Onboarding (Week 6 — BE-27, BE-28, BE-29) ─────────────────────────────────
+
+export interface OnboardingStep {
+  id: number;
+  phase: number;
+  step_number: number;
+  title: string;
+  description: string;
+  portal_url?: string | null;
+  documents: string[];
+  kb_article_id?: number | null;
+  completed: boolean;
+  completed_at?: string | null;
+}
+
+export interface OnboardingPhase {
+  phase: number;
+  total_steps: number;
+  completed_steps: number;
+  steps: OnboardingStep[];
+}
+
+export interface OnboardingStatus {
+  is_onboarding_complete: boolean;
+  total_steps: number;
+  completed_steps: number;
+  overall_progress_pct: number;
+  phases: OnboardingPhase[];
+}
+
+export interface OnboardingPhaseProgress {
+  phase: number;
+  steps_complete: number;
+  steps_total: number;
+  is_complete: boolean;
+}
+
+export interface OnboardingProgressSummary {
+  phases_complete: number;
+  steps_complete: number;
+  steps_total: number;
+  is_complete: boolean;
+  phases: OnboardingPhaseProgress[];
+}
+
+export interface MarkStepCompleteBody {
+  completed: boolean;
+}
+
+export interface OnboardingStepUpdateResponse {
+  step: OnboardingStep;
+  total_steps: number;
+  completed_steps: number;
+  overall_progress_pct: number;
+  is_onboarding_complete: boolean;
+}

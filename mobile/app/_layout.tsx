@@ -2,8 +2,6 @@
 import { Stack } from "expo-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { useNetworkFlusher } from "@/store/offlineQueue";
-import { useNotificationSetup } from "@/hooks/useNotifications";
 import { ActivityIndicator, View } from "react-native";
 import {
   useFonts,
@@ -11,6 +9,8 @@ import {
   PublicSans_600SemiBold,
   PublicSans_700Bold,
 } from "@expo-google-fonts/public-sans";
+import { useNetworkFlusher } from "@/store/offlineQueue";
+import { useNotificationSetup } from "@/hooks/useNotifications";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -18,10 +18,9 @@ const queryClient = new QueryClient({
   },
 });
 
-// Mount once at root — offline queue + push notification listeners
 function AppServices() {
   useNetworkFlusher();
-  useNotificationSetup(); // FE-14: registers token, wires deep-link routing
+  useNotificationSetup();
   return null;
 }
 
@@ -49,12 +48,12 @@ export default function RootLayout() {
           <Stack.Screen name="business-profile" />
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="(tabs)" />
-          {/* Week 3 */}
           <Stack.Screen name="add-task" options={{ presentation: "modal" }} />
           <Stack.Screen name="history" />
-          {/* Week 4 */}
           <Stack.Screen name="knowledge-base" />
           <Stack.Screen name="notification-preferences" />
+          <Stack.Screen name="client-switcher" />
+          <Stack.Screen name="starter-guide" options={{ animation: "slide_from_bottom" }} />
         </Stack>
       </QueryClientProvider>
     </GestureHandlerRootView>
