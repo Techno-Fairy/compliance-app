@@ -18,15 +18,21 @@ const C = {
 interface TopBarProps {
   /** Optional: render a back arrow instead of the menu icon */
   showBack?: boolean;
+  /** Optional: override the default app title text */
+  title?: string;
+  /** Optional: custom back/close handler; falls back to router.back() when showBack is true */
+  onBack?: () => void;
 }
 
-export function TopBar({ showBack = false }: TopBarProps) {
+export function TopBar({ showBack = false, title, onBack }: TopBarProps) {
+  const handleBack = onBack ?? (() => router.back());
+
   return (
     <View style={s.topBar}>
       <View style={s.left}>
-        {showBack ? (
+        {(showBack || onBack) ? (
           <Pressable
-            onPress={() => router.back()}
+            onPress={handleBack}
             style={({ pressed }) => [s.iconBtn, pressed && s.pressed]}
             hitSlop={8}
           >
@@ -35,7 +41,7 @@ export function TopBar({ showBack = false }: TopBarProps) {
         ) : (
           <MaterialIcons name="menu" size={24} color={C.primary} />
         )}
-        <Text style={s.appTitle}>CompliancePro Botswana</Text>
+        <Text style={s.appTitle}>{title ?? "CompliancePro Botswana"}</Text>
       </View>
 
       {/* Profile avatar — tapping navigates to /profile (read-only view) */}
