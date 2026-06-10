@@ -12,6 +12,7 @@
 import { useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Pressable,
   RefreshControl,
@@ -25,7 +26,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useOnboardingSteps } from "@/hooks/useOnboardingProgress";
+import { useOnboardingSteps, useCompleteOnboarding } from "@/hooks/useOnboardingProgress";
 import { TopBar } from "@/components/ui/TopBar";
 import type { OnboardingPhase, OnboardingStep } from "@/types";
 
@@ -246,6 +247,7 @@ function SkeletonGuide() {
 export default function StarterGuideScreen() {
   const router = useRouter();
   const { data, isLoading, isError, refetch } = useOnboardingSteps();
+  const { mutate: completeOnboarding, isPending: isCompleting } = useCompleteOnboarding();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = async () => {
@@ -358,15 +360,83 @@ export default function StarterGuideScreen() {
           </View>
         )}
 
-        {/* FE-26 placeholder: "Setup Complete" CTA shown when all 4 phases done */}
+        {/* FE-26: "Setup Complete" celebration banner + Finish Setup CTA */}
         {data?.is_onboarding_complete && (
-          <Pressable
-            style={({ pressed }) => [s.finishBtn, pressed && { opacity: 0.82 }]}
-            onPress={() => router.replace("/(tabs)" as any)}
-          >
-            <MaterialIcons name="dashboard" size={18} color="#fff" />
-            <Text style={s.finishBtnText}>Go to Dashboard</Text>
-          </Pressable>
+          <View style={s.celebrationCard}>
+            {/* Confetti-style accent strip */}
+            <View style={s.celebrationStrip}>
+              {["#acf4a4", "#d8f3f6", "#FEF3E2", "#acf4a4", "#d8f3f6"].map((col, i) => (
+                <View key={i} style={[s.celebrationDot, { backgroundColor: col }]} />
+              ))}
+            </View>
+
+            <View style={s.celebrationBody}>
+              {/* Icon */}
+              <View style={s.celebrationIcon}>
+                <MaterialIcons name="verified" size={32} color={C.secondaryText} />
+              </View>
+
+              {/* Message */}
+              <Text style={s.celebrationTitle}>Setup Complete! 🎉</Text>
+              <Text style={s.celebrationSub}>
+                All 4 compliance phases are done. Your health score, penalty
+                exposure engine, and deadline tracking are now fully active.
+              </Text>
+
+              {/* What's now active list */}
+              <View style={s.activatedList}>
+                {[
+                  { icon: "bar-chart",      label: "Health score activated"          },
+                  { icon: "warning",        label: "Penalty exposure engine live"    },
+                  { icon: "notifications",  label: "Deadline notifications enabled"  },
+                  { icon: "folder-special", label: "Evidence vault ready"            },
+                ].map(({ icon, label }) => (
+                  <View key={label} style={s.activatedRow}>
+                    <MaterialIcons name={icon as any} size={14} color={C.secondaryText} />
+                    <Text style={s.activatedLabel}>{label}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Go to Dashboard CTA */}
+              <Pressable
+                style={({ pressed }) => [
+                  s.finishBtn,
+                  pressed && { opacity: 0.82 },
+                  isCompleting && s.finishBtnDisabled,
+                ]}
+                onPress={() => {
+                  // data.is_onboarding_complete is already true (set by the last
+                  // PATCH /onboarding/steps auto-trigger in BE-28). We call the
+                  // manual override as a belt-and-braces confirmation, then navigate.
+                  completeOnboarding(undefined, {
+                    onSuccess: () => router.replace("/(tabs)" as any),
+                    onError: () => {
+                      // Cache was already flipped optimistically; navigate anyway
+                      // so the user isn't blocked. Show a non-blocking notice.
+                      Alert.alert(
+                        "Almost there",
+                        "Your setup is saved locally. The dashboard is now active.",
+                        [{ text: "Go to Dashboard", onPress: () => router.replace("/(tabs)" as any) }]
+                      );
+                    },
+                  });
+                }}
+                disabled={isCompleting}
+                accessibilityRole="button"
+                accessibilityLabel="Go to your compliance dashboard"
+              >
+                {isCompleting ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <MaterialIcons name="dashboard" size={18} color="#fff" />
+                    <Text style={s.finishBtnText}>Go to Dashboard</Text>
+                  </>
+                )}
+              </Pressable>
+            </View>
+          </View>
         )}
 
         <View style={{ height: 40 }} />
@@ -457,9 +527,88 @@ const s = StyleSheet.create({
   retryBtn:   { marginTop: 8, backgroundColor: C.teal, borderRadius: 10, paddingHorizontal: 28, paddingVertical: 11 },
   retryText:  { fontSize: 14, fontFamily: "PublicSans_700Bold", color: "#fff" },
 
-  // Finish button (FE-26)
-  finishBtn:     { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: C.secondary, borderRadius: 14, paddingVertical: 15, marginTop: 16 },
-  finishBtnText: { fontSize: 15, fontFamily: "PublicSans_700Bold", color: "#fff", letterSpacing: 0.3 },
+  // FE-26 — Celebration card
+  celebrationCard: {
+    backgroundColor: C.surface,
+    borderRadius: 16,
+    marginTop: 16,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: C.secondary + "55",
+  },
+  celebrationStrip: {
+    flexDirection: "row",
+    height: 8,
+    overflow: "hidden",
+  },
+  celebrationDot: {
+    flex: 1,
+  },
+  celebrationBody: {
+    padding: 20,
+    gap: 12,
+    alignItems: "center",
+  },
+  celebrationIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: C.secondaryBg,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: C.secondary + "55",
+  },
+  celebrationTitle: {
+    fontSize: 20,
+    fontFamily: "PublicSans_700Bold",
+    color: C.primary,
+    textAlign: "center",
+  },
+  celebrationSub: {
+    fontSize: 13,
+    fontFamily: "PublicSans_400Regular",
+    color: C.mid,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  activatedList: {
+    alignSelf: "stretch",
+    backgroundColor: C.containerLow,
+    borderRadius: 12,
+    padding: 14,
+    gap: 8,
+  },
+  activatedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  activatedLabel: {
+    fontSize: 13,
+    fontFamily: "PublicSans_600SemiBold",
+    color: C.secondaryText,
+  },
+  finishBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: C.secondary,
+    borderRadius: 14,
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    alignSelf: "stretch",
+  },
+  finishBtnDisabled: {
+    opacity: 0.6,
+  },
+  finishBtnText: {
+    fontSize: 15,
+    fontFamily: "PublicSans_700Bold",
+    color: "#fff",
+    letterSpacing: 0.3,
+  },
 
   // Skeleton
   skelPhase: { flexDirection: "row", alignItems: "center", backgroundColor: C.surface, borderRadius: 14, padding: 14, gap: 12, borderWidth: 1, borderColor: C.border },

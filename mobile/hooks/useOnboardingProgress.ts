@@ -209,3 +209,39 @@ export function useMarkStepComplete() {
     },
   });
 }
+
+// ── useCompleteOnboarding ─────────────────────────────────────────────────────
+/**
+ * FE-26: Manual override — PATCH /business/profile { is_onboarding_complete: true }
+ *
+ * Called when the user taps "Finish Setup" after all 4 phases are done.
+ * On success:
+ *   - Optimistically marks both onboarding caches as complete so the UI
+ *     transitions immediately without waiting for a refetch.
+ *   - Invalidates health-score so the dashboard gauge activates on next render.
+ *   - Invalidates onboarding progress so the dashboard card disappears.
+ */
+export function useCompleteOnboarding() {
+  const qc = useQueryClient();
+
+  return useMutation<void, Error>({
+    mutationFn: async () => {
+      await api.patch("/business/profile", { is_onboarding_complete: true });
+    },
+
+    onSuccess: () => {
+      // Optimistically flip is_complete / is_onboarding_complete in both caches
+      qc.setQueryData<OnboardingStatus>(onboardingKeys.steps, (old) =>
+        old ? { ...old, is_onboarding_complete: true } : old
+      );
+      qc.setQueryData<OnboardingProgressSummary>(onboardingKeys.progress, (old) =>
+        old ? { ...old, is_complete: true } : old
+      );
+
+      // Re-fetch health score so dashboard gauge activates
+      qc.invalidateQueries({ queryKey: ["health-score"] });
+      // Re-fetch progress summary for belt-and-braces
+      qc.invalidateQueries({ queryKey: onboardingKeys.progress });
+    },
+  });
+}

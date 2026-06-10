@@ -16,6 +16,7 @@ import Svg, { Polyline, Circle, Line, Text as SvgText, Defs, LinearGradient, Sto
 import { useDeadlines, useUpdateDeadlineStatus } from "@/hooks/useDeadlines";
 import { useHealthScore } from "@/hooks/useHealthScore";
 import { useTrendData, buildStaticTrend } from "@/hooks/useTrendData";
+import type { TrendPoint } from "@/hooks/useTrendData";
 import { useOnboardingProgress } from "@/hooks/useOnboardingProgress";
 import { PenaltyExposureModal } from "@/components/PenaltyExposureModal";
 import { ComplianceCalendarModal } from "@/components/ComplianceCalendarModal";
@@ -270,7 +271,7 @@ function TrendChart({ score, band }: { score: number; band: string }) {
         />
 
         {/* Data points */}
-        {points.map((p, i) => (
+        {points.map((p: TrendPoint, i: number) => (
           <Circle
             key={i}
             cx={toX(i)}
@@ -283,7 +284,7 @@ function TrendChart({ score, band }: { score: number; band: string }) {
         ))}
 
         {/* Month labels */}
-        {points.map((p, i) => (
+        {points.map((p: TrendPoint, i: number) => (
           <SvgText
             key={i}
             x={toX(i)}

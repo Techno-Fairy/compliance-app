@@ -31,6 +31,8 @@ const C = {
   amberBg:    "#FEF3E2",
   labour:     "#6B3A7D",
   labourBg:   "#F3EEF7",
+  teal:       "#006874",
+  tealBg:     "#d8f3f6",
 };
 
 function SettingsRow({
@@ -321,6 +323,13 @@ export default function SettingsScreen() {
         <Text style={s.section}>COMPLIANCE</Text>
         <View style={s.card}>
           <SettingsRow
+            icon="checklist" iconBg={C.tealBg} iconColor={C.teal}
+            label="Business Setup Guide"
+            subtitle="Step-by-step Botswana compliance onboarding"
+            onPress={() => router.push("/starter-guide" as any)}
+          />
+          <View style={s.divider} />
+          <SettingsRow
             icon="history" iconBg={C.bursBg} iconColor={C.burs}
             label="Filing History"
             subtitle="Audit trail of all compliance actions"
@@ -378,7 +387,7 @@ export default function SettingsScreen() {
           <SettingsRow icon="delete-forever" label="Delete Account" onPress={handleDeleteAccount} destructive />
         </View>
 
-        <Text style={s.version}>CompliancePro Botswana  ·  v1.0.0-w5</Text>
+        <Text style={s.version}>CompliancePro Botswana  ·  v1.0.0-w6</Text>
         <View style={{ height: 40 }} />
       </ScrollView>
 
