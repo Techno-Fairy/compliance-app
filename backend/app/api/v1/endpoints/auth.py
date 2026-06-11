@@ -2,7 +2,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -20,8 +19,10 @@ from app.schemas.auth import (
     RegisterRequest,
     RegisterWithProfileRequest,
     TokenResponse,
+    UpdateAccountRequest,
     UserResponse,
 )
+from app.core.deps import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -59,7 +60,7 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
     return _tokens(user)
 
 
-# ── Step 4: register-with-profile (used after completing Starter Guide) ───────
+# ── register-with-profile (unchanged) ────────────────────────────────────────
 @router.post(
     "/register-with-profile",
     response_model=TokenResponse,
@@ -68,23 +69,7 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
 def register_with_profile(
     body: RegisterWithProfileRequest, db: Session = Depends(get_db)
 ):
-    """
-    One-shot registration for users who completed the public Starter Guide.
-
-    Creates:
-      1. User account
-      2. BusinessProfile with all supplied details
-         → is_onboarding_complete = True  (guide was completed offline)
-
-    The `after_insert` trigger on BusinessProfile normally seeds
-    onboarding_progress rows with completed=False.  We override them all
-    to completed=True immediately after the insert so the backend state
-    matches what the user achieved in the guide.
-
-    The frontend follows up with POST /onboarding/sync-local-progress to
-    supply accurate completed_at timestamps from the local SQLite store.
-    """
-    # ── 1. Check email uniqueness ─────────────────────────────────────────
+    """One-shot registration for users who completed the public Starter Guide."""
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(
             status_code=422,
@@ -95,16 +80,14 @@ def register_with_profile(
             },
         )
 
-    # ── 2. Create user ────────────────────────────────────────────────────
     user = User(
         full_name=body.full_name,
         email=body.email,
         hashed_password=hash_password(body.password),
     )
     db.add(user)
-    db.flush()  # assigns user.id without committing
+    db.flush()
 
-    # ── 3. Create BusinessProfile (is_onboarding_complete = True) ─────────
     profile = BusinessProfile(
         owner_id=user.id,
         business_name=body.business_name,
@@ -116,17 +99,11 @@ def register_with_profile(
         is_onboarding_complete=True,
     )
     db.add(profile)
-    db.flush()  # assigns profile.id; triggers after_insert → seeds progress rows
+    db.flush()
 
-    # ── 4. Override all seeded rows to completed=True ─────────────────────
-    # The after_insert trigger already inserted rows with completed=False.
-    # We bulk-update them here so the backend immediately reflects completion.
     db.query(OnboardingProgress).filter(
         OnboardingProgress.business_id == profile.id
-    ).update(
-        {"completed": True},
-        synchronize_session=False,
-    )
+    ).update({"completed": True}, synchronize_session=False)
 
     db.commit()
     db.refresh(user)
@@ -169,11 +146,74 @@ def logout():
     return
 
 
-# ── GET /auth/me ──────────────────────────────────────────────────────────────
 @router.get("/me", response_model=UserResponse)
 def get_me(current_user: User = Depends(get_current_user)):
+    """Return the currently authenticated user's profile."""
+    return current_user
+
+
+# ── Step 2: PATCH /auth/me — edit email and/or password ──────────────────────
+@router.patch("/me", response_model=UserResponse)
+def update_account(
+    body: UpdateAccountRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
-    Return the currently authenticated user's profile.
-    Used by the frontend for role-based UI (e.g. accountant client switcher).
+    Update the current user's email and/or password.
+
+    Rules:
+    - `current_password` is always required to authorise any change.
+    - `new_email` is optional; if supplied it must not already be in use.
+    - `new_password` is optional; if supplied it must be ≥ 8 chars.
+    - At least one of new_email or new_password must be provided.
+
+    Returns the updated UserResponse so the frontend can refresh its
+    cached user data.  New JWT tokens are NOT issued — the existing
+    access token remains valid until its natural expiry.
     """
+    # ── 1. Verify current password ────────────────────────────────────────
+    if not verify_password(body.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "AUTH_ERROR",
+                "message": "Current password is incorrect.",
+            },
+        )
+
+    # ── 2. Require at least one change ────────────────────────────────────
+    if not body.new_email and not body.new_password:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "VALIDATION_ERROR",
+                "message": "Provide a new email, a new password, or both.",
+            },
+        )
+
+    # ── 3. Apply email update ─────────────────────────────────────────────
+    if body.new_email:
+        normalised = body.new_email.strip().lower()
+        if normalised != current_user.email.lower():
+            existing = (
+                db.query(User).filter(User.email == normalised).first()
+            )
+            if existing:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "code": "VALIDATION_ERROR",
+                        "message": "Email address is already in use.",
+                        "field": "new_email",
+                    },
+                )
+            current_user.email = normalised
+
+    # ── 4. Apply password update ──────────────────────────────────────────
+    if body.new_password:
+        current_user.hashed_password = hash_password(body.new_password)
+
+    db.commit()
+    db.refresh(current_user)
     return current_user

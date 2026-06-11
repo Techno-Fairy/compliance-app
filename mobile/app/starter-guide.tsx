@@ -28,9 +28,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
-import * as SecureStore from "expo-secure-store";
 import { TopBar } from "@/components/ui/TopBar";
-import { useOnboardingSteps } from "@/hooks/useOnboardingProgress";
 import {
   getLocalProgress,
   markLocalStep,
@@ -213,6 +211,49 @@ const STATIC_PHASES: OnboardingPhase[] = [
           "Payroll register (spreadsheet or software)",
           "Leave record per employee",
         ],
+      },
+    ],
+  },
+  {
+    phase: 4,
+    total_steps: 4,
+    completed_steps: 0,
+    steps: [
+      {
+        id: 12, phase: 4, step_number: 1, completed: false, completed_at: null,
+        title: "Create your CompliancePro account",
+        description:
+          "Create your account and add your CIPA number, TIN, and VAT status. " +
+          "CompliancePro will seed your personalised compliance calendar.",
+        portal_url: null,
+        documents: ["CIPA number", "BURS TIN"],
+      },
+      {
+        id: 13, phase: 4, step_number: 2, completed: false, completed_at: null,
+        title: "Review your pre-seeded compliance calendar",
+        description:
+          "Check that all your BURS, CIPA, and Labour Act deadlines are correct. " +
+          "Add any custom obligations specific to your business.",
+        portal_url: null,
+        documents: [],
+      },
+      {
+        id: 14, phase: 4, step_number: 3, completed: false, completed_at: null,
+        title: "Enable push notifications",
+        description:
+          "Allow notifications so CompliancePro can alert you 30, 14, and 3 days " +
+          "before each deadline.",
+        portal_url: null,
+        documents: [],
+      },
+      {
+        id: 15, phase: 4, step_number: 4, completed: false, completed_at: null,
+        title: "Activate your compliance dashboard",
+        description:
+          "Your health score is now live. Upload your first compliance document to " +
+          "start building your evidence trail.",
+        portal_url: null,
+        documents: [],
       },
     ],
   },
@@ -404,70 +445,36 @@ function PhaseAccordion({
 export default function StarterGuideScreen() {
   const router = useRouter();
 
-  // ── Auth detection ─────────────────────────────────────────────────────
-  // We check for a stored token to decide the data source:
-  //   authenticated → GET /onboarding/steps (real server progress)
-  //   public        → local SQLite (pre-registration guide)
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    SecureStore.getItemAsync("access_token").then((token) => {
-      setIsAuthenticated(!!token);
-    });
-  }, []);
-
-  // ── Authenticated path: React Query ───────────────────────────────────
-  const {
-    data: apiData,
-    isLoading: apiLoading,
-  } = useOnboardingSteps();
-
-  // ── Public path: local SQLite ─────────────────────────────────────────
   const [phases, setPhases] = useState<OnboardingPhase[]>(
     buildPhasesWithProgress({})
   );
-  const [localLoading, setLocalLoading] = useState(true);
+  const [openPhase, setOpenPhase] = useState<number>(1);
+  const [loading, setLoading] = useState(true);
 
-  const loadLocalProgress = useCallback(async () => {
+  // ── Load local progress on mount and on each focus ──────────────────────
+  const loadProgress = useCallback(async () => {
     const progressMap = await getLocalProgress();
     setPhases(buildPhasesWithProgress(progressMap));
-    setLocalLoading(false);
+    setLoading(false);
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      if (isAuthenticated === false) {
-        loadLocalProgress();
-      }
-    }, [isAuthenticated, loadLocalProgress])
+      loadProgress();
+    }, [loadProgress])
   );
 
-  // ── Derived display phases ─────────────────────────────────────────────
-  // For authenticated users, map the API response (OnboardingStatus) back
-  // to OnboardingPhase[] — the shape is identical so no transform needed,
-  // but we strip Phase 4 to match the public guide's 3-phase structure.
-  const displayPhases: OnboardingPhase[] = isAuthenticated && apiData
-    ? apiData.phases.filter((p) => p.phase <= 3)
-    : phases;
-
-  const loading =
-    isAuthenticated === null ||
-    (isAuthenticated && apiLoading && !apiData) ||
-    (!isAuthenticated && localLoading);
-
-  const [openPhase, setOpenPhase] = useState<number>(1);
-
-  // Auto-open first incomplete phase once data is ready
+  // ── Auto-open the first incomplete phase ───────────────────────────────
   useEffect(() => {
     if (loading) return;
-    const first = displayPhases.find((p) => p.completed_steps < p.total_steps);
+    const first = phases.find((p) => p.completed_steps < p.total_steps);
     if (first) setOpenPhase(first.phase);
   }, [loading]);
 
-  // ── Derived totals ─────────────────────────────────────────────────────
-  const completedSteps = displayPhases.reduce((acc, p) => acc + p.completed_steps, 0);
-  const allComplete    = completedSteps === TOTAL_STEPS;
-  const pct            = Math.round((completedSteps / TOTAL_STEPS) * 100);
+  // ── Derived ────────────────────────────────────────────────────────────
+  const completedSteps = phases.reduce((acc, p) => acc + p.completed_steps, 0);
+  const allComplete = completedSteps === TOTAL_STEPS;
+  const pct = Math.round((completedSteps / TOTAL_STEPS) * 100);
 
   // ── Exit prompt (Step 1) ────────────────────────────────────────────────
   const handleExit = useCallback(() => {
@@ -542,7 +549,7 @@ export default function StarterGuideScreen() {
             <Text style={s.heroEyebrow}>Botswana Compliance Setup</Text>
             <Text style={s.heroTitle}>Business Starter Guide</Text>
             <Text style={s.heroSub}>
-              3 phases · 11 steps to full compliance
+              4 phases · {TOTAL_STEPS} steps to full compliance
             </Text>
           </View>
           <View style={s.heroPct}>
@@ -551,16 +558,14 @@ export default function StarterGuideScreen() {
           </View>
         </View>
 
-        {/* ── Local-storage notice (public path only) ── */}
-        {!isAuthenticated && (
-          <View style={s.noticeBanner}>
-            <MaterialIcons name="info-outline" size={16} color={C.teal} />
-            <Text style={s.noticeText}>
-              Progress is saved on this device. Create an account at the end to
-              keep it permanently.
-            </Text>
-          </View>
-        )}
+        {/* ── Local-storage notice (Step 1) ── */}
+        <View style={s.noticeBanner}>
+          <MaterialIcons name="info-outline" size={16} color={C.teal} />
+          <Text style={s.noticeText}>
+            Progress is saved on this device. Create an account at the end to
+            keep it permanently.
+          </Text>
+        </View>
 
         {/* ── Overall progress bar ── */}
         <View style={s.overallBarWrap}>
@@ -582,7 +587,7 @@ export default function StarterGuideScreen() {
 
         {/* ── Phase accordions ── */}
         <View style={s.phases}>
-          {displayPhases.map((phase) => (
+          {phases.map((phase) => (
             <PhaseAccordion
               key={phase.phase}
               phase={phase}
@@ -615,56 +620,38 @@ export default function StarterGuideScreen() {
                 Setup Complete!
               </Text>
               <Text style={s.celebrationSub}>
-                {isAuthenticated
-                  ? "Your business is fully set up. Your compliance dashboard, penalty tracker, and document vault are all active."
-                  : "You've finished all 11 steps. Create your free CompliancePro account to activate your compliance dashboard, penalty tracker, and document vault."}
+                You've finished all 15 steps. Create your free CompliancePro
+                account to activate your compliance dashboard, penalty
+                tracker, and document vault.
               </Text>
 
-              {/* ── CTA: context-aware ── */}
-              {isAuthenticated ? (
-                <Pressable
-                  style={({ pressed }) => [s.createBtn, pressed && { opacity: 0.88 }]}
-                  onPress={() => router.replace("/(tabs)" as any)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Go to your compliance dashboard"
-                >
-                  <MaterialIcons name="dashboard" size={18} color="#fff" />
-                  <Text style={s.createBtnText}>Go to Dashboard</Text>
-                </Pressable>
-              ) : (
-                <>
-                  {/* ── PRIMARY: Create Account ── */}
-                  <Pressable
-                    style={({ pressed }) => [
-                      s.createBtn,
-                      pressed && { opacity: 0.88 },
-                    ]}
-                    onPress={() => router.push({
-                      pathname: "/(auth)/register",
-                      params: { fromGuide: "true" },
-                    } as any)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Create your compliance account"
-                  >
-                    <MaterialIcons name="person-add" size={18} color="#fff" />
-                    <Text style={s.createBtnText}>Create Your Compliance Account</Text>
-                  </Pressable>
+              {/* ── PRIMARY: Create Account ── */}
+              <Pressable
+                style={({ pressed }) => [
+                  s.createBtn,
+                  pressed && { opacity: 0.88 },
+                ]}
+                onPress={() => router.push("/guide-register" as any)}
+                accessibilityRole="button"
+                accessibilityLabel="Create your compliance account"
+              >
+                <MaterialIcons name="person-add" size={18} color="#fff" />
+                <Text style={s.createBtnText}>Create Your Compliance Account</Text>
+              </Pressable>
 
-                  {/* ── SECONDARY: remind later ── */}
-                  <Pressable
-                    style={s.laterBtn}
-                    onPress={() =>
-                      Alert.alert(
-                        "You can register later",
-                        "Your progress is saved on this device. Come back any time to create your account.",
-                        [{ text: "OK" }]
-                      )
-                    }
-                  >
-                    <Text style={s.laterBtnText}>Remind me later</Text>
-                  </Pressable>
-                </>
-              )}
+              {/* ── SECONDARY: continue browsing the guide ── */}
+              <Pressable
+                style={s.laterBtn}
+                onPress={() =>
+                  Alert.alert(
+                    "You can register later",
+                    "Your progress is saved on this device. Come back any time to create your account.",
+                    [{ text: "OK" }]
+                  )
+                }
+              >
+                <Text style={s.laterBtnText}>Remind me later</Text>
+              </Pressable>
             </View>
           </View>
         )}

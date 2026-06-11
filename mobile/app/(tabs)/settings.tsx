@@ -1,5 +1,5 @@
 // mobile/app/(tabs)/settings.tsx
-// FE-18: Settings — notification prefs, invite team, change password, logout, delete account
+// FE-18: Settings — notification prefs, invite team, edit account details, logout, delete account
 // FE-19: Client switcher row (visible for accountant / admin roles)
 
 import { useEffect, useState } from "react";
@@ -59,70 +59,178 @@ function SettingsRow({
   );
 }
 
-// ── Change Password Modal (FE-18) ─────────────────────────────────────────────
+// ── Edit Account Details Modal (Step 2 — replaces ChangePasswordModal) ────────
 import { Modal, TextInput, ActivityIndicator } from "react-native";
 import { api } from "@/lib/api";
+import { useQueryClient } from "@tanstack/react-query";
 
-function ChangePasswordModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const [current,  setCurrent]  = useState("");
-  const [next,     setNext]     = useState("");
-  const [confirm,  setConfirm]  = useState("");
-  const [saving,   setSaving]   = useState(false);
-  const [err,      setErr]      = useState("");
+function EditAccountModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const qc = useQueryClient();
 
-  const reset = () => { setCurrent(""); setNext(""); setConfirm(""); setErr(""); };
+  const [currentPw,  setCurrentPw]  = useState("");
+  const [newEmail,   setNewEmail]   = useState("");
+  const [newPw,      setNewPw]      = useState("");
+  const [confirmPw,  setConfirmPw]  = useState("");
+  const [showPw,     setShowPw]     = useState(false);
+  const [saving,     setSaving]     = useState(false);
+  const [err,        setErr]        = useState("");
+
+  const reset = () => {
+    setCurrentPw(""); setNewEmail(""); setNewPw(""); setConfirmPw(""); setErr("");
+  };
 
   const handleSave = async () => {
-    if (!current || !next || !confirm) { setErr("All fields are required."); return; }
-    if (next.length < 8)               { setErr("New password must be at least 8 characters."); return; }
-    if (next !== confirm)              { setErr("Passwords do not match."); return; }
-    setSaving(true); setErr("");
+    setErr("");
+
+    // ── Client-side validation ────────────────────────────────────────────
+    if (!currentPw) {
+      setErr("Current password is required."); return;
+    }
+    if (!newEmail && !newPw) {
+      setErr("Enter a new email address, a new password, or both."); return;
+    }
+    if (newPw && newPw.length < 8) {
+      setErr("New password must be at least 8 characters."); return;
+    }
+    if (newPw && newPw !== confirmPw) {
+      setErr("New passwords do not match."); return;
+    }
+    if (newEmail && !newEmail.includes("@")) {
+      setErr("Enter a valid email address."); return;
+    }
+
+    setSaving(true);
     try {
-      await api.patch("/auth/change-password", { current_password: current, new_password: next });
-      reset(); onClose();
-      Alert.alert("Password changed", "Your password has been updated.");
+      await api.patch("/auth/me", {
+        current_password: currentPw,
+        new_email:    newEmail   || undefined,
+        new_password: newPw      || undefined,
+      });
+
+      // Invalidate the current user query so the UI refreshes
+      qc.invalidateQueries({ queryKey: ["current-user"] });
+
+      reset();
+      onClose();
+      Alert.alert(
+        "Details updated",
+        newEmail && newPw ? "Email and password have been updated." :
+        newEmail          ? "Email address has been updated." :
+                            "Password has been updated."
+      );
     } catch (e: any) {
-      setErr(e?.response?.data?.detail ?? "Could not change password. Check your current password.");
-    } finally { setSaving(false); }
+      const detail = e?.response?.data?.detail;
+      setErr(
+        typeof detail === "object" ? detail.message :
+        typeof detail === "string" ? detail :
+        "Could not update details. Check your current password and try again."
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="formSheet" onRequestClose={onClose}>
-      <View style={pw.safe}>
-        <View style={pw.header}>
-          <Text style={pw.title}>Change Password</Text>
-          <Pressable onPress={() => { reset(); onClose(); }} hitSlop={8}><MaterialIcons name="close" size={22} color={C.primary} /></Pressable>
+      <View style={ed.safe}>
+        <View style={ed.header}>
+          <Text style={ed.title}>Edit Account Details</Text>
+          <Pressable onPress={() => { reset(); onClose(); }} hitSlop={8}>
+            <MaterialIcons name="close" size={22} color={C.primary} />
+          </Pressable>
         </View>
-        <ScrollView style={pw.scroll} contentContainerStyle={pw.body} keyboardShouldPersistTaps="handled">
-          {[
-            { label: "Current Password", value: current, set: setCurrent },
-            { label: "New Password",     value: next,    set: setNext    },
-            { label: "Confirm Password", value: confirm, set: setConfirm },
-          ].map(({ label, value, set }) => (
-            <View key={label} style={pw.fieldGroup}>
-              <Text style={pw.label}>{label}</Text>
+
+        <ScrollView style={ed.scroll} contentContainerStyle={ed.body} keyboardShouldPersistTaps="handled">
+
+          {/* Current password — always required */}
+          <View style={ed.fieldGroup}>
+            <Text style={ed.label}>Current Password *</Text>
+            <TextInput
+              style={ed.input}
+              secureTextEntry
+              value={currentPw}
+              onChangeText={setCurrentPw}
+              placeholder="Enter your current password"
+              placeholderTextColor={C.muted}
+              autoCapitalize="none"
+            />
+          </View>
+
+          <View style={ed.divider} />
+
+          {/* New email — optional */}
+          <View style={ed.sectionHint}>
+            <MaterialIcons name="info-outline" size={14} color={C.muted} />
+            <Text style={ed.sectionHintText}>
+              Fill in the fields you want to change. Leave blank to keep current.
+            </Text>
+          </View>
+
+          <View style={ed.fieldGroup}>
+            <Text style={ed.label}>New Email Address</Text>
+            <TextInput
+              style={ed.input}
+              value={newEmail}
+              onChangeText={setNewEmail}
+              placeholder="new@example.co.bw"
+              placeholderTextColor={C.muted}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+          </View>
+
+          {/* New password — optional */}
+          <View style={ed.fieldGroup}>
+            <Text style={ed.label}>New Password</Text>
+            <View style={{ position: "relative" }}>
               <TextInput
-                style={pw.input}
-                secureTextEntry
-                value={value}
-                onChangeText={set}
-                placeholder="••••••••"
+                style={[ed.input, { paddingRight: 46 }]}
+                secureTextEntry={!showPw}
+                value={newPw}
+                onChangeText={setNewPw}
+                placeholder="At least 8 characters"
                 placeholderTextColor={C.muted}
                 autoCapitalize="none"
               />
+              <Pressable
+                style={ed.eyeBtn}
+                onPress={() => setShowPw((p) => !p)}
+                hitSlop={8}
+              >
+                <MaterialIcons name={showPw ? "visibility-off" : "visibility"} size={18} color={C.muted} />
+              </Pressable>
             </View>
-          ))}
+          </View>
+
+          <View style={ed.fieldGroup}>
+            <Text style={ed.label}>Confirm New Password</Text>
+            <TextInput
+              style={ed.input}
+              secureTextEntry={!showPw}
+              value={confirmPw}
+              onChangeText={setConfirmPw}
+              placeholder="Repeat new password"
+              placeholderTextColor={C.muted}
+              autoCapitalize="none"
+            />
+          </View>
+
           {err ? (
-            <View style={pw.errRow}>
+            <View style={ed.errRow}>
               <MaterialIcons name="error-outline" size={14} color={C.error} />
-              <Text style={pw.errText}>{err}</Text>
+              <Text style={ed.errText}>{err}</Text>
             </View>
           ) : null}
+
           <Pressable
-            style={({ pressed }) => [pw.btn, pressed && { opacity: 0.8 }, saving && { opacity: 0.6 }]}
-            onPress={handleSave} disabled={saving}
+            style={({ pressed }) => [ed.btn, pressed && { opacity: 0.8 }, saving && { opacity: 0.6 }]}
+            onPress={handleSave}
+            disabled={saving}
           >
-            {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={pw.btnText}>Update Password</Text>}
+            {saving
+              ? <ActivityIndicator color="#fff" size="small" />
+              : <Text style={ed.btnText}>Save Changes</Text>
+            }
           </Pressable>
         </ScrollView>
       </View>
@@ -130,22 +238,26 @@ function ChangePasswordModal({ visible, onClose }: { visible: boolean; onClose: 
   );
 }
 
-const pw = StyleSheet.create({
-  safe:       { flex: 1, backgroundColor: C.bg },
-  header:     { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.container },
-  title:      { fontSize: 17, fontFamily: "PublicSans_700Bold", color: C.primary },
-  scroll:     { flex: 1 },
-  body:       { padding: 20, gap: 16 },
-  fieldGroup: { gap: 6 },
-  label:      { fontSize: 13, fontFamily: "PublicSans_600SemiBold", color: C.mid },
-  input:      { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, fontFamily: "PublicSans_400Regular", color: C.primary },
-  errRow:     { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: C.errorBg, borderRadius: 8, padding: 10 },
-  errText:    { flex: 1, fontSize: 12, color: C.error, fontFamily: "PublicSans_400Regular" },
-  btn:        { backgroundColor: C.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 8 },
-  btnText:    { color: "#fff", fontFamily: "PublicSans_700Bold", fontSize: 15 },
+const ed = StyleSheet.create({
+  safe:        { flex: 1, backgroundColor: C.bg },
+  header:      { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.container },
+  title:       { fontSize: 17, fontFamily: "PublicSans_700Bold", color: C.primary },
+  scroll:      { flex: 1 },
+  body:        { padding: 20, gap: 16 },
+  fieldGroup:  { gap: 6 },
+  label:       { fontSize: 13, fontFamily: "PublicSans_600SemiBold", color: C.mid },
+  input:       { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, fontFamily: "PublicSans_400Regular", color: C.primary },
+  eyeBtn:      { position: "absolute", right: 12, top: 13 },
+  divider:     { height: 1, backgroundColor: C.borderSoft },
+  sectionHint: { flexDirection: "row", alignItems: "flex-start", gap: 6, backgroundColor: C.containerLow, borderRadius: 8, padding: 10 },
+  sectionHintText: { flex: 1, fontSize: 12, fontFamily: "PublicSans_400Regular", color: C.muted, lineHeight: 17 },
+  errRow:      { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: C.errorBg, borderRadius: 8, padding: 10 },
+  errText:     { flex: 1, fontSize: 12, color: C.error, fontFamily: "PublicSans_400Regular" },
+  btn:         { backgroundColor: C.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 8 },
+  btnText:     { color: "#fff", fontFamily: "PublicSans_700Bold", fontSize: 15 },
 });
 
-// ── Invite Team Modal (FE-18) ─────────────────────────────────────────────────
+// ── Invite Team Modal (FE-18 — unchanged) ─────────────────────────────────────
 function InviteTeamModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const [email,   setEmail]   = useState("");
   const [role,    setRole]    = useState<"accountant" | "admin">("accountant");
@@ -256,8 +368,9 @@ const inv = StyleSheet.create({
 export default function SettingsScreen() {
   const logout = useAuthStore((st) => st.logout);
   const { data: currentUser } = useCurrentUser();
-  const [showChangePassword, setShowChangePassword] = useState(false);
-  const [showInvite,         setShowInvite]         = useState(false);
+  // Step 2: renamed state var from showChangePassword → showEditAccount
+  const [showEditAccount, setShowEditAccount] = useState(false);
+  const [showInvite,      setShowInvite]      = useState(false);
 
   const isAccountantOrAdmin =
     currentUser?.role === "accountant" || currentUser?.role === "admin";
@@ -355,7 +468,7 @@ export default function SettingsScreen() {
           />
         </View>
 
-        {/* Account — FE-18 */}
+        {/* Account — Step 2: "Change Password" → "Edit Account Details" */}
         <Text style={s.section}>ACCOUNT</Text>
         <View style={s.card}>
           <SettingsRow
@@ -366,9 +479,10 @@ export default function SettingsScreen() {
           />
           <View style={s.divider} />
           <SettingsRow
-            icon="lock" iconBg={C.containerLow} iconColor={C.mid}
-            label="Change Password"
-            onPress={() => setShowChangePassword(true)}
+            icon="manage-accounts" iconBg={C.containerLow} iconColor={C.mid}
+            label="Edit Account Details"
+            subtitle="Change email or password"
+            onPress={() => setShowEditAccount(true)}
           />
           <View style={s.divider} />
           <SettingsRow
@@ -392,8 +506,8 @@ export default function SettingsScreen() {
       </ScrollView>
 
       {/* FE-18 Modals */}
-      <ChangePasswordModal visible={showChangePassword} onClose={() => setShowChangePassword(false)} />
-      <InviteTeamModal     visible={showInvite}         onClose={() => setShowInvite(false)} />
+      <EditAccountModal visible={showEditAccount} onClose={() => setShowEditAccount(false)} />
+      <InviteTeamModal  visible={showInvite}      onClose={() => setShowInvite(false)} />
     </SafeAreaView>
   );
 }

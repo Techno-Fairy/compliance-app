@@ -196,16 +196,17 @@ def create_custom(
     Create a custom compliance deadline for the authenticated user's business.
 
     Custom deadlines allow businesses to track industry-specific obligations
-    not included in the default Botswana regulatory calendar.
+    not included in the default Botswana regulatory calendar.  The caller
+    supplies the category (BURS, CIPA, LABOUR, or CUSTOM); it is stored as-is.
     A filing history entry is created for the audit trail.
     """
     business = _get_business_or_404(db, owner_id=current_user.id)
 
-
-    data = body.model_dump()
-    data["category"] = DeadlineCategory.CUSTOM   # enforce CUSTOM regardless of client input
+    # ── BUG FIX (Step 1): removed the line that forced category to CUSTOM.
+    # The category supplied by the client (validated by DeadlineCreate against
+    # the DeadlineCategory enum) is now stored unchanged.
     dl = Deadline(
-        **data,
+        **body.model_dump(),
         business_id=business.id,
         is_custom=True,
     )
@@ -219,7 +220,7 @@ def create_custom(
         business_id=business.id,
         deadline_id=dl.id,
         action="custom_deadline_created",
-        description=f"Custom deadline '{dl.name}' created (due: {dl.due_date}).",
+        description=f"Custom deadline '{dl.name}' ({dl.category}) created (due: {dl.due_date}).",
         performed_by=current_user.email,
     )
 

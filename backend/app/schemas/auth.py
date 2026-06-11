@@ -3,7 +3,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 
 class UserResponse(BaseModel):
-    """Returned by GET /auth/me."""
+    """Returned by GET /auth/me and PATCH /auth/me."""
     id: int
     full_name: str
     email: str
@@ -19,25 +19,12 @@ class RegisterRequest(BaseModel):
 
 
 class RegisterWithProfileRequest(BaseModel):
-    """
-    Used by POST /auth/register-with-profile.
-
-    Combines user account creation with business profile creation in one
-    transaction.  Sent by the frontend after the user completes the
-    public Starter Guide.
-
-    CIPA number and BURS TIN are optional at registration — the user may
-    not have them yet at Phase 4 Step 1, and can add them later via
-    PATCH /business/profile.
-    """
-    # ── Personal ──────────────────────────────────────────────────────────
+    """Used by POST /auth/register-with-profile."""
     full_name: str = Field(min_length=2, max_length=255)
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
-
-    # ── Business ──────────────────────────────────────────────────────────
     business_name: str = Field(min_length=1, max_length=255)
-    company_type: str  # validated against CompanyType enum in the endpoint
+    company_type: str
     cipa_number: str | None = None
     burs_tin: str | None = None
     vat_registered: bool = False
@@ -57,3 +44,17 @@ class TokenResponse(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+
+# ── Step 2: Edit account details ──────────────────────────────────────────────
+
+class UpdateAccountRequest(BaseModel):
+    """
+    Body for PATCH /auth/me.
+
+    current_password is always required to authorize any change.
+    Provide new_email, new_password, or both.
+    """
+    current_password: str = Field(min_length=1)
+    new_email: EmailStr | None = None
+    new_password: str | None = Field(default=None, min_length=8, max_length=128)
