@@ -15,7 +15,7 @@ import { MaterialIcons } from "@expo/vector-icons";
 import Svg, { Polyline, Circle, Line, Text as SvgText, Defs, LinearGradient, Stop, Rect } from "react-native-svg";
 import { useDeadlines, useUpdateDeadlineStatus } from "@/hooks/useDeadlines";
 import { useHealthScore } from "@/hooks/useHealthScore";
-import { useTrendData, buildStaticTrend } from "@/hooks/useTrendData";
+import { useTrendData } from "@/hooks/useTrendData";
 import type { TrendPoint } from "@/hooks/useTrendData";
 import { useOnboardingProgress } from "@/hooks/useOnboardingProgress";
 import { PenaltyExposureModal } from "@/components/PenaltyExposureModal";
@@ -212,12 +212,30 @@ const CHART_PAD_X = 28;
 const CHART_PAD_Y = 12;
 
 function TrendChart({ score, band }: { score: number; band: string }) {
-  const { data: trendData } = useTrendData();
-  // Guard: fall back to static trend if API data is missing or has no points
-  const trend = (trendData?.points?.length ?? 0) > 0 ? trendData! : buildStaticTrend(score);
+  const { data: trendData, isLoading: trendLoading } = useTrendData();
 
-  const points = trend.points ?? [];
-  if (points.length === 0) return null;
+  const hasRealData = (trendData?.points?.length ?? 0) > 0;
+
+  // ── Empty / loading state ────────────────────────────────────────────────
+  if (trendLoading || !hasRealData) {
+    return (
+      <View style={tc.wrap}>
+        <View style={tc.titleRow}>
+          <Text style={tc.title}>6-Month Trend</Text>
+        </View>
+        <View style={tc.emptyState}>
+          <MaterialIcons name="show-chart" size={28} color={C.border} />
+          <Text style={tc.emptyTitle}>No trend data yet</Text>
+          <Text style={tc.emptySub}>
+            Your compliance trend will appear here after your first filing period.
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  const trend  = trendData!;
+  const points = trend.points;
 
   const minScore = Math.min(...points.map((p) => p.score)) - 10;
   const maxScore = Math.max(...points.map((p) => p.score)) + 5;
@@ -315,16 +333,25 @@ function TrendChart({ score, band }: { score: number; band: string }) {
 }
 
 const tc = StyleSheet.create({
-  wrap:      { marginTop: 12, alignSelf: "stretch" },
-  titleRow:  { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 },
-  title:     { fontSize: 13, fontFamily: "PublicSans_600SemiBold", color: C.mid },
-  changeRow: { flexDirection: "row", alignItems: "center", gap: 3 },
-  changeTxt: { fontSize: 12, fontFamily: "PublicSans_700Bold" },
-  legendRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 2 },
-  legendItem:{ flexDirection: "row", alignItems: "center", gap: 5 },
-  legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendText:{ fontSize: 11, fontFamily: "PublicSans_600SemiBold", color: C.mid },
+  wrap:       { marginTop: 12, alignSelf: "stretch" },
+  titleRow:   { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 },
+  title:      { fontSize: 13, fontFamily: "PublicSans_600SemiBold", color: C.mid },
+  changeRow:  { flexDirection: "row", alignItems: "center", gap: 3 },
+  changeTxt:  { fontSize: 12, fontFamily: "PublicSans_700Bold" },
+  legendRow:  { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 2 },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  legendDot:  { width: 8, height: 8, borderRadius: 4 },
+  legendText: { fontSize: 11, fontFamily: "PublicSans_600SemiBold", color: C.mid },
   legendMuted:{ fontSize: 10, color: C.muted },
+  emptyState: {
+    alignItems: "center", justifyContent: "center",
+    paddingVertical: 20, gap: 6,
+    backgroundColor: C.containerLow,
+    borderRadius: 12, borderWidth: 1,
+    borderColor: C.borderSoft, borderStyle: "dashed",
+  },
+  emptyTitle: { fontSize: 13, fontFamily: "PublicSans_600SemiBold", color: C.muted },
+  emptySub:   { fontSize: 11, fontFamily: "PublicSans_400Regular", color: C.muted, textAlign: "center", lineHeight: 16, paddingHorizontal: 24 },
 });
 
 // ── Health Score Gauge ────────────────────────────────────────────────────────
@@ -502,7 +529,7 @@ export default function DashboardScreen() {
   const completedItems = deadlines?.filter((d) => d.status === "complete") ?? [];
   const hasItems = overdueItems.length + upcomingItems.length + completedItems.length > 0;
 
-  const score     = scoreData?.score     ?? 85;
+  const score     = scoreData?.score     ?? 0;
   const band      = scoreData?.band      ?? "green";
   const breakdown = scoreData?.breakdown ?? [];
 

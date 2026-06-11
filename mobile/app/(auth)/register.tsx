@@ -1,259 +1,539 @@
-// mobile/app/(auth)/register.tsx
-import React, { useState, useRef } from "react";
+/**
+ * app/(auth)/register.tsx — unified registration screen
+ *
+ * Replaces both the old (auth)/register.tsx and guide-register.tsx.
+ *
+ * Two entry points:
+ *   A) Login page → "Register" link  (params.fromGuide absent)
+ *   B) Starter Guide celebration banner → router.push("/(auth)/register",
+ *        { params: { fromGuide: "true" } })
+ *
+ * Endpoint: POST /auth/register-with-profile
+ *   - Creates user + business profile in one shot
+ *   - Sets is_onboarding_complete = true (guide-completers) or false (direct)
+ *   - After success, if fromGuide=true, syncs local SQLite progress to backend
+ */
+import { useRef, useState } from "react";
 import {
-  View, Text, TextInput, Pressable,
-  StyleSheet, ActivityIndicator, Alert, ScrollView,
-  Modal, Image, TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { router } from "expo-router";
-import { useAuthStore } from "@/store/auth";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons, Ionicons } from "@expo/vector-icons";
-import { useFonts, PublicSans_400Regular, PublicSans_600SemiBold, PublicSans_700Bold } from "@expo-google-fonts/public-sans";
+import { router, useLocalSearchParams } from "expo-router";
+import * as SecureStore from "expo-secure-store";
+import { api } from "@/lib/api";
+import {
+  exportLocalProgress,
+  clearLocalProgress,
+} from "@/lib/localOnboardingProgress";
+import type { TokenResponse } from "@/types";
 
-const CustomCheckbox = ({ value, onValueChange }: { value: boolean; onValueChange: (val: boolean) => void }) => (
-  <Pressable
-    onPress={() => onValueChange(!value)}
-    style={({ pressed }) => ({
-      width: 20, height: 20, borderRadius: 5,
-      borderWidth: 1.5, borderColor: value ? "#000b25" : "#c5c6cf",
-      backgroundColor: value ? "#000b25" : "transparent",
-      justifyContent: "center", alignItems: "center", opacity: pressed ? 0.7 : 1,
-    })}
-  >
-    {value && <MaterialIcons name="check" size={13} color="#fff" />}
-  </Pressable>
-);
-
-type FieldProps = {
-  label: string;
-  placeholder: string;
-  value: string;
-  onChange: (text: string) => void;
-  secure?: boolean;
-  showToggle?: boolean;
-  onToggle?: () => void;
-  keyType?: any;
-  inputRef?: React.RefObject<TextInput | null>;
-  returnKeyType?: "next" | "done" | "go" | "search" | "send";
-  onSubmitEditing?: () => void;
+const C = {
+  bg:           "#f3faff",
+  surface:      "#ffffff",
+  primary:      "#000b25",
+  mid:          "#44474e",
+  muted:        "#75777f",
+  border:       "#c5c6cf",
+  borderSoft:   "#e6f6ff",
+  teal:         "#006874",
+  tealBg:       "#d8f3f6",
+  tealDark:     "#004f58",
+  tealLight:    "#e8f8fa",
+  secondary:    "#2a6b2c",
+  secondaryBg:  "#acf4a4",
+  container:    "#dbf1fe",
+  containerLow: "#e6f6ff",
+  error:        "#ba1a1a",
+  errorBg:      "#ffdad6",
 };
 
-const Field = ({ label, placeholder, value, onChange, secure, showToggle, onToggle, keyType = "default", inputRef, returnKeyType = "next", onSubmitEditing }: FieldProps) => (
-  <View style={s.field}>
-    <Text style={s.label}>{label}</Text>
-    <View style={s.inputWrap}>
-      <View style={s.inputIcon}>
-        <MaterialIcons
-          name={secure !== undefined ? "lock" : label.toLowerCase().includes("email") ? "mail" : "person"}
-          size={18} color="#44474e"
-        />
-      </View>
-      <TextInput
-        ref={inputRef}
-        style={[s.input, (showToggle || onToggle) && { paddingRight: 48 }]}
-        placeholder={placeholder} placeholderTextColor="#a0a3ab"
-        autoCapitalize="none" keyboardType={keyType}
-        secureTextEntry={secure && !showToggle}
-        value={value} onChangeText={onChange}
-        blurOnSubmit={false}
-        returnKeyType={returnKeyType}
-        onSubmitEditing={onSubmitEditing}
-      />
-      {onToggle && (
-        <TouchableOpacity style={s.eye} onPress={onToggle}>
-          <Ionicons name={showToggle ? "eye-off" : "eye"} size={18} color="#44474e" />
-        </TouchableOpacity>
-      )}
-    </View>
-  </View>
-);
+type CompanyType = "sole_trader" | "pty_ltd" | "partnership" | "ngo";
+const COMPANY_TYPES: { value: CompanyType; label: string }[] = [
+  { value: "pty_ltd",      label: "Pty Ltd" },
+  { value: "sole_trader",  label: "Sole Trader" },
+  { value: "partnership",  label: "Partnership" },
+  { value: "ngo",          label: "NGO / Non-Profit" },
+];
 
 export default function RegisterScreen() {
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
+  const { fromGuide } = useLocalSearchParams<{ fromGuide?: string }>();
+  const isFromGuide = fromGuide === "true";
+
+  // ── Personal ──────────────────────────────────────────────────────────────
+  const [fullName,     setFullName]     = useState("");
+  const [email,        setEmail]        = useState("");
+  const [password,     setPassword]     = useState("");
+  const [confirm,      setConfirm]      = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [agreeTerms, setAgreeTerms] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
-  const register = useAuthStore((s) => s.register);
+  const [showConfirm,  setShowConfirm]  = useState(false);
+  const [agreeTerms,   setAgreeTerms]   = useState(false);
 
-  const emailRef    = useRef<TextInput>(null);
-  const passwordRef = useRef<TextInput>(null);
-  const confirmRef  = useRef<TextInput>(null);
+  // ── Business ──────────────────────────────────────────────────────────────
+  const [bizName,       setBizName]       = useState("");
+  const [companyType,   setCompanyType]   = useState<CompanyType>("pty_ltd");
+  const [cipaNumber,    setCipaNumber]    = useState("");
+  const [bursTin,       setBursTin]       = useState("");
+  const [vatRegistered, setVatRegistered] = useState(false);
+  const [vatMonthly,    setVatMonthly]    = useState(true);
 
-  const [fontsLoaded] = useFonts({ PublicSans_400Regular, PublicSans_600SemiBold, PublicSans_700Bold });
-  if (!fontsLoaded) return <View style={s.loading}><ActivityIndicator size="large" color="#000b25" /></View>;
+  const [loading,  setLoading]  = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
 
-  const validateEmail = (e: string) => /^[^\s@]+@([^\s@.,]+\.)+[^\s@.,]{2,}$/.test(e.toLowerCase());
+  // Refs for keyboard flow
+  const emailRef   = useRef<TextInput>(null);
+  const passRef    = useRef<TextInput>(null);
+  const confirmRef = useRef<TextInput>(null);
+  const bizRef     = useRef<TextInput>(null);
+  const cipaRef    = useRef<TextInput>(null);
+  const tinRef     = useRef<TextInput>(null);
+
+  const validateEmail = (e: string) =>
+    /^[^\s@]+@([^\s@.,]+\.)+[^\s@.,]{2,}$/.test(e.toLowerCase());
 
   const handleRegister = async () => {
-    const name = fullName.trim();
-    const mail = email.trim().toLowerCase();
-    if (name.length < 2) return Alert.alert("Validation", "Please enter your full name.");
-    if (!validateEmail(mail)) return Alert.alert("Validation", "Enter a valid email address.");
-    if (password.length < 8) return Alert.alert("Validation", "Password must be at least 8 characters.");
-    if (password !== confirm) return Alert.alert("Validation", "Passwords do not match.");
-    if (!agreeTerms) return Alert.alert("Validation", "You must agree to the Terms of Service and Privacy Policy.");
+    setApiError(null);
+
+    // ── Validation ──────────────────────────────────────────────────────────
+    if (fullName.trim().length < 2)
+      return setApiError("Please enter your full name (at least 2 characters).");
+    if (!validateEmail(email.trim()))
+      return setApiError("Enter a valid email address.");
+    if (password.length < 8)
+      return setApiError("Password must be at least 8 characters.");
+    if (password !== confirm)
+      return setApiError("Passwords do not match.");
+    if (!agreeTerms)
+      return setApiError("You must agree to the Terms of Service and Privacy Policy.");
+    if (!bizName.trim())
+      return setApiError("Please enter your business name.");
+
     setLoading(true);
+
     try {
-      await register(name, mail, password);
-      setShowSuccess(true);
+      // ── POST /auth/register-with-profile ──────────────────────────────────
+      const { data } = await api.post<TokenResponse>(
+        "/auth/register-with-profile",
+        {
+          full_name:          fullName.trim(),
+          email:              email.trim().toLowerCase(),
+          password,
+          business_name:      bizName.trim(),
+          company_type:       companyType,
+          cipa_number:        cipaNumber.trim() || null,
+          burs_tin:           bursTin.trim()    || null,
+          vat_registered:     vatRegistered,
+          vat_filing_monthly: vatMonthly,
+        }
+      );
+
+      await SecureStore.setItemAsync("access_token",  data.access_token);
+      await SecureStore.setItemAsync("refresh_token", data.refresh_token);
+
+      // ── Sync local guide progress (guide path only) ───────────────────────
+      if (isFromGuide) {
+        try {
+          const completed = await exportLocalProgress();
+          if (completed.length > 0) {
+            await api.post("/onboarding/sync-local-progress", {
+              completed_steps: completed.map((r) => ({
+                step_id:      r.step_id,
+                completed_at: r.completed_at,
+              })),
+            });
+          }
+        } catch {
+          // Non-fatal — account exists, sync can be retried later
+        }
+        await clearLocalProgress();
+      }
+
+      router.replace("/(tabs)");
     } catch (err: any) {
-      Alert.alert("Error", err?.response?.data?.detail?.message ?? "Registration failed. Try again.");
-    } finally { setLoading(false); }
+      const detail = err?.response?.data?.detail;
+      if (typeof detail === "object" && detail?.message) {
+        setApiError(detail.message);
+      } else if (typeof detail === "string") {
+        setApiError(detail);
+      } else {
+        setApiError("Registration failed. Please check your details and try again.");
+      }
+      setLoading(false);
+    }
   };
 
-  const handleSuccessClose = () => { setShowSuccess(false); router.replace("/business-profile"); };
-
   return (
-    <ScrollView
-      contentContainerStyle={s.container}
-      showsVerticalScrollIndicator={false}
-      keyboardShouldPersistTaps="handled"
-    >
-      {/* Header */}
-      <View style={s.header}>
-        <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#000b25" />
+    <SafeAreaView style={s.safe} edges={["top"]}>
+      <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
+
+      {/* Top bar */}
+      <View style={s.topBar}>
+        <TouchableOpacity
+          style={s.backBtn}
+          onPress={() => router.back()}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <MaterialIcons name="arrow-back" size={22} color={C.primary} />
         </TouchableOpacity>
+        <Text style={s.topBarTitle}>Create Account</Text>
+        <View style={{ width: 40 }} />
       </View>
 
-      {/* Intro */}
-      <View style={s.intro}>
-        <Text style={s.title}>Create Account</Text>
-        <Text style={s.sub}>Secure your business standing with professional regulatory monitoring.</Text>
-      </View>
-
-      {/* Form */}
-      <View style={s.form}>
-        <Field label="FULL NAME" placeholder="Motsamai Kgosi" value={fullName} onChange={setFullName}
-          returnKeyType="next" onSubmitEditing={() => emailRef.current?.focus()} />
-        <Field label="EMAIL ADDRESS" placeholder="motsamai@business.bw" value={email} onChange={setEmail} keyType="email-address"
-          inputRef={emailRef} returnKeyType="next" onSubmitEditing={() => passwordRef.current?.focus()} />
-        <View style={s.field}>
-          <Text style={s.label}>PASSWORD</Text>
-          <View style={s.inputWrap}>
-            <View style={s.inputIcon}><MaterialIcons name="lock" size={18} color="#44474e" /></View>
-            <TextInput ref={passwordRef} style={[s.input, { paddingRight: 48 }]} placeholder="••••••••" placeholderTextColor="#a0a3ab"
-              secureTextEntry={!showPassword} value={password} onChangeText={setPassword}
-              blurOnSubmit={false} returnKeyType="next" onSubmitEditing={() => confirmRef.current?.focus()} />
-            <TouchableOpacity style={s.eye} onPress={() => setShowPassword(!showPassword)}>
-              <Ionicons name={showPassword ? "eye-off" : "eye"} size={18} color="#44474e" />
-            </TouchableOpacity>
+      <ScrollView
+        style={s.scroll}
+        contentContainerStyle={s.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Hero */}
+        <View style={s.hero}>
+          <View style={s.heroIcon}>
+            <MaterialIcons name="verified-user" size={28} color={C.teal} />
+          </View>
+          <View style={{ flex: 1, gap: 3 }}>
+            <Text style={s.heroTitle}>
+              {isFromGuide ? "Almost there!" : "Join CompliancePro"}
+            </Text>
+            <Text style={s.heroSub}>
+              {isFromGuide
+                ? "Create your free account to activate your compliance dashboard."
+                : "Secure your business standing with professional regulatory monitoring."}
+            </Text>
           </View>
         </View>
-        <View style={s.field}>
-          <Text style={s.label}>CONFIRM PASSWORD</Text>
-          <View style={s.inputWrap}>
-            <View style={s.inputIcon}><MaterialIcons name="lock-outline" size={18} color="#44474e" /></View>
-            <TextInput ref={confirmRef} style={[s.input, { paddingRight: 48 }]} placeholder="••••••••" placeholderTextColor="#a0a3ab"
-              secureTextEntry={!showConfirm} value={confirm} onChangeText={setConfirm}
-              blurOnSubmit={true} returnKeyType="done" onSubmitEditing={handleRegister} />
-            <TouchableOpacity style={s.eye} onPress={() => setShowConfirm(!showConfirm)}>
-              <Ionicons name={showConfirm ? "eye-off" : "eye"} size={18} color="#44474e" />
-            </TouchableOpacity>
+
+        {/* Error banner */}
+        {apiError && (
+          <View style={s.errorBox}>
+            <MaterialIcons name="error-outline" size={16} color={C.error} />
+            <Text style={s.errorText}>{apiError}</Text>
           </View>
+        )}
+
+        {/* ── Personal details ── */}
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>Your Details</Text>
+
+          <View style={s.field}>
+            <Text style={s.label}>FULL NAME</Text>
+            <View style={s.inputWrap}>
+              <MaterialIcons name="person" size={18} color={C.mid} style={s.inputIcon} />
+              <TextInput
+                style={s.input} placeholder="Motsamai Kgosi"
+                placeholderTextColor="#a0a3ab" value={fullName}
+                onChangeText={setFullName} returnKeyType="next"
+                onSubmitEditing={() => emailRef.current?.focus()}
+              />
+            </View>
+          </View>
+
+          <View style={s.field}>
+            <Text style={s.label}>EMAIL ADDRESS</Text>
+            <View style={s.inputWrap}>
+              <MaterialIcons name="mail" size={18} color={C.mid} style={s.inputIcon} />
+              <TextInput
+                ref={emailRef} style={s.input}
+                placeholder="motsamai@business.bw" placeholderTextColor="#a0a3ab"
+                autoCapitalize="none" keyboardType="email-address"
+                value={email} onChangeText={setEmail}
+                returnKeyType="next" onSubmitEditing={() => passRef.current?.focus()}
+              />
+            </View>
+          </View>
+
+          <View style={s.field}>
+            <Text style={s.label}>PASSWORD</Text>
+            <View style={s.inputWrap}>
+              <MaterialIcons name="lock" size={18} color={C.mid} style={s.inputIcon} />
+              <TextInput
+                ref={passRef} style={[s.input, { paddingRight: 48 }]}
+                placeholder="At least 8 characters" placeholderTextColor="#a0a3ab"
+                secureTextEntry={!showPassword} value={password}
+                onChangeText={setPassword} returnKeyType="next"
+                onSubmitEditing={() => confirmRef.current?.focus()}
+              />
+              <TouchableOpacity style={s.eyeBtn} onPress={() => setShowPassword((p) => !p)}>
+                <Ionicons name={showPassword ? "eye-off" : "eye"} size={18} color={C.muted} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={s.field}>
+            <Text style={s.label}>CONFIRM PASSWORD</Text>
+            <View style={s.inputWrap}>
+              <MaterialIcons name="lock-outline" size={18} color={C.mid} style={s.inputIcon} />
+              <TextInput
+                ref={confirmRef} style={[s.input, { paddingRight: 48 }]}
+                placeholder="Re-enter password" placeholderTextColor="#a0a3ab"
+                secureTextEntry={!showConfirm} value={confirm}
+                onChangeText={setConfirm} returnKeyType="next"
+                onSubmitEditing={() => bizRef.current?.focus()}
+              />
+              <TouchableOpacity style={s.eyeBtn} onPress={() => setShowConfirm((p) => !p)}>
+                <Ionicons name={showConfirm ? "eye-off" : "eye"} size={18} color={C.muted} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        {/* ── Business details ── */}
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>Your Business</Text>
+
+          <View style={s.field}>
+            <Text style={s.label}>BUSINESS NAME</Text>
+            <View style={s.inputWrap}>
+              <MaterialIcons name="business" size={18} color={C.mid} style={s.inputIcon} />
+              <TextInput
+                ref={bizRef} style={s.input}
+                placeholder="e.g. Kgale Tech Solutions (Pty) Ltd"
+                placeholderTextColor="#a0a3ab" value={bizName}
+                onChangeText={setBizName} returnKeyType="next"
+                onSubmitEditing={() => cipaRef.current?.focus()}
+              />
+            </View>
+            <Text style={s.hint}>Must match your CIPA certificate exactly.</Text>
+          </View>
+
+          {/* Company type chips */}
+          <View style={s.field}>
+            <Text style={s.label}>COMPANY TYPE</Text>
+            <View style={s.typeGrid}>
+              {COMPANY_TYPES.map((t) => (
+                <Pressable
+                  key={t.value}
+                  style={[s.typeChip, companyType === t.value && s.typeChipActive]}
+                  onPress={() => setCompanyType(t.value)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: companyType === t.value }}
+                >
+                  <Text style={[s.typeChipText, companyType === t.value && s.typeChipTextActive]}>
+                    {t.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          <View style={s.field}>
+            <Text style={s.label}>CIPA NUMBER <Text style={s.optional}>optional</Text></Text>
+            <View style={s.inputWrap}>
+              <MaterialIcons name="tag" size={18} color={C.mid} style={s.inputIcon} />
+              <TextInput
+                ref={cipaRef} style={s.input}
+                placeholder="BW-12345678" placeholderTextColor="#a0a3ab"
+                value={cipaNumber} onChangeText={setCipaNumber}
+                returnKeyType="next" onSubmitEditing={() => tinRef.current?.focus()}
+                autoCapitalize="characters"
+              />
+            </View>
+            <Text style={s.hint}>From your Certificate of Incorporation. Add now or later in Settings.</Text>
+          </View>
+
+          <View style={s.field}>
+            <Text style={s.label}>BURS TIN <Text style={s.optional}>optional</Text></Text>
+            <View style={s.inputWrap}>
+              <MaterialIcons name="receipt-long" size={18} color={C.mid} style={s.inputIcon} />
+              <TextInput
+                ref={tinRef} style={s.input}
+                placeholder="P03212345678" placeholderTextColor="#a0a3ab"
+                keyboardType="default" value={bursTin}
+                onChangeText={setBursTin} returnKeyType="done"
+              />
+            </View>
+            <Text style={s.hint}>Your Tax Identification Number from BURS. Add now or later.</Text>
+          </View>
+
+          {/* VAT toggles */}
+          <View style={s.toggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.toggleLabel}>Registered for VAT</Text>
+              <Text style={s.hint}>Required if annual turnover ≥ BWP 1,000,000.</Text>
+            </View>
+            <Switch
+              value={vatRegistered} onValueChange={setVatRegistered}
+              trackColor={{ false: C.border, true: C.teal }}
+              thumbColor="#ffffff"
+            />
+          </View>
+
+          {vatRegistered && (
+            <View style={s.toggleRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.toggleLabel}>Monthly VAT filing</Text>
+                <Text style={s.hint}>Toggle off for bi-monthly filing.</Text>
+              </View>
+              <Switch
+                value={vatMonthly} onValueChange={setVatMonthly}
+                trackColor={{ false: C.border, true: C.teal }}
+                thumbColor="#ffffff"
+              />
+            </View>
+          )}
         </View>
 
         {/* Terms */}
-        <View style={s.termsRow}>
-          <CustomCheckbox value={agreeTerms} onValueChange={setAgreeTerms} />
+        <Pressable style={s.termsRow} onPress={() => setAgreeTerms((v) => !v)}>
+          <View style={[s.checkbox, agreeTerms && s.checkboxOn]}>
+            {agreeTerms && <MaterialIcons name="check" size={13} color="#fff" />}
+          </View>
           <Text style={s.termsText}>
-            I agree to the <Text style={s.link}>Terms of Service</Text> and <Text style={s.link}>Privacy Policy</Text> regarding BURS and CIPA data processing.
+            I agree to the{" "}
+            <Text style={s.termsLink}>Terms of Service</Text> and{" "}
+            <Text style={s.termsLink}>Privacy Policy</Text>
+            {" "}regarding BURS and CIPA data processing.
           </Text>
-        </View>
+        </Pressable>
 
-        {/* Register button */}
-        <Pressable style={[s.btn, loading && s.btnDisabled]} onPress={handleRegister} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : (
-            <><Text style={s.btnText}>Register</Text><MaterialIcons name="arrow-forward" size={20} color="#fff" /></>
+        {/* Submit */}
+        <Pressable
+          style={[s.submitBtn, loading && s.submitBtnDisabled]}
+          onPress={handleRegister}
+          disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Create account"
+        >
+          {loading ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <>
+              <MaterialIcons name="person-add" size={18} color="#fff" />
+              <Text style={s.submitBtnText}>Create Account</Text>
+            </>
           )}
         </Pressable>
 
         <View style={s.loginRow}>
           <Text style={s.loginText}>Already have an account?</Text>
-          <TouchableOpacity onPress={() => router.push("/(auth)/login")}>
+          <TouchableOpacity onPress={() => router.replace("/(auth)/login")}>
             <Text style={s.loginLink}> Login</Text>
           </TouchableOpacity>
         </View>
-      </View>
 
-      {/* Decorative footer */}
-      <View style={s.footer}>
-        <View style={s.encBadge}>
-          <MaterialIcons name="verified-user" size={15} color="#2a6b2c" />
-          <Text style={s.encText}>END-TO-END ENCRYPTED</Text>
-        </View>
-        <View style={s.imgWrap}>
-          <Image
-            source={{ uri: "https://lh3.googleusercontent.com/aida-public/AB6AXuAiTHY3nqAQToUR5h9n1BQHoastxzSVu3Dvftcdt0vvot0jUWvtzpChHXDiFYDSXhVpNzEN4vyIkPWo_QBS3Ya8AZ_ApIgcfBg_K868mA7hqC-odDffROhaEh_Btu_r0oMB64Hy8Y3UygLDmJFbYgcYAbav4xOBmqmshJnCsXSkSDmA-vyeE5vcyPdyR-W7W_z4eHU0UzJqVuZhvQRR1BkrrqtuUFVzulI5Kp3mNikkoKwvMKfv2aA1Jv9M5fnWBaVcRCu4J07ogCnH" }}
-            style={s.footerImg}
-            resizeMode="cover"
-          />
-          <View style={s.imgOverlay}>
-            <Text style={s.imgCaption}>Professional Compliance Management for Botswana Enterprises</Text>
+        {/* Trust badges */}
+        <View style={s.trust}>
+          <View style={s.trustItem}>
+            <MaterialIcons name="verified-user" size={13} color={C.muted} />
+            <Text style={s.trustLabel}>END-TO-END ENCRYPTED</Text>
+          </View>
+          <View style={s.trustItem}>
+            <MaterialIcons name="account-balance" size={13} color={C.muted} />
+            <Text style={s.trustLabel}>BURS COMPLIANT</Text>
           </View>
         </View>
-      </View>
 
-      {/* Success modal */}
-      <Modal visible={showSuccess} transparent animationType="fade">
-        <View style={s.modalOverlay}>
-          <View style={s.modalCard}>
-            <View style={s.successIconWrap}>
-              <Ionicons name="checkmark-circle" size={60} color="#307231" />
-            </View>
-            <Text style={s.modalTitle}>Registration Success</Text>
-            <Text style={s.modalMsg}>Welcome to CompliancePro Botswana. We've sent a verification link to your email.</Text>
-            <Pressable style={s.modalBtn} onPress={handleSuccessClose}>
-              <Text style={s.modalBtnText}>Set Up Business</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
-    </ScrollView>
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
-  loading:       { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#f3faff" },
-  container:     { flexGrow: 1, backgroundColor: "#f3faff", paddingHorizontal: 16, paddingBottom: 32 },
-  header:        { height: 64, justifyContent: "center" },
-  backBtn:       { width: 40, height: 40, borderRadius: 20, justifyContent: "center", alignItems: "center", backgroundColor: "#dbf1fe" },
-  intro:         { marginTop: 4, marginBottom: 28 },
-  title:         { fontSize: 32, fontFamily: "PublicSans_700Bold", color: "#000b25", marginBottom: 6, letterSpacing: -0.64 },
-  sub:           { fontSize: 15, fontFamily: "PublicSans_400Regular", color: "#44474e", lineHeight: 22 },
-  form:          { gap: 18 },
-  field:         { gap: 6 },
-  label:         { fontSize: 11, fontFamily: "PublicSans_600SemiBold", letterSpacing: 0.7, color: "#44474e", textTransform: "uppercase", marginLeft: 2 },
-  inputWrap:     { flexDirection: "row", alignItems: "center", backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#c5c6cf", borderRadius: 14, height: 52 },
-  inputIcon:     { marginLeft: 14, marginRight: 4 },
-  input:         { flex: 1, fontSize: 15, fontFamily: "PublicSans_400Regular", color: "#071e27", paddingVertical: 12, paddingHorizontal: 10 },
-  eye:           { position: "absolute", right: 14 },
-  termsRow:      { flexDirection: "row", alignItems: "flex-start", gap: 12, marginTop: 4 },
-  termsText:     { flex: 1, fontSize: 13, fontFamily: "PublicSans_400Regular", color: "#44474e", lineHeight: 19 },
-  link:          { fontFamily: "PublicSans_600SemiBold", color: "#2a6b2c" },
-  btn:           { backgroundColor: "#000b25", borderRadius: 14, paddingVertical: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 4, shadowColor: "#000", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.12, shadowRadius: 5, elevation: 3 },
-  btnDisabled:   { opacity: 0.6 },
-  btnText:       { fontSize: 18, fontFamily: "PublicSans_600SemiBold", color: "#ffffff" },
-  loginRow:      { flexDirection: "row", justifyContent: "center" },
-  loginText:     { fontSize: 13, fontFamily: "PublicSans_400Regular", color: "#44474e" },
-  loginLink:     { fontSize: 13, fontFamily: "PublicSans_700Bold", color: "#000b25" },
-  footer:        { marginTop: 36, alignItems: "center" },
-  encBadge:      { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#dbf1fe", paddingHorizontal: 16, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: "#c5c6cf", marginBottom: 20 },
-  encText:       { fontSize: 11, fontFamily: "PublicSans_600SemiBold", color: "#307231", letterSpacing: 0.5 },
-  imgWrap:       { width: "100%", maxWidth: 320, height: 180, borderRadius: 14, overflow: "hidden" },
-  footerImg:     { width: "100%", height: "100%", opacity: 0.45 },
-  imgOverlay:    { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "rgba(243,250,255,0.85)", paddingVertical: 8, paddingHorizontal: 12 },
-  imgCaption:    { fontSize: 11, fontFamily: "PublicSans_400Regular", color: "#44474e", textAlign: "center", fontStyle: "italic" },
-  modalOverlay:  { flex: 1, backgroundColor: "rgba(243,250,255,0.94)", justifyContent: "center", alignItems: "center", paddingHorizontal: 24 },
-  modalCard:     { backgroundColor: "#ffffff", borderRadius: 16, padding: 28, alignItems: "center", width: "100%", maxWidth: 320, borderWidth: 1, borderColor: "#c5c6cf", shadowColor: "#000", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 8 },
-  successIconWrap: { width: 88, height: 88, borderRadius: 44, backgroundColor: "#acf4a4", justifyContent: "center", alignItems: "center", marginBottom: 16 },
-  modalTitle:    { fontSize: 22, fontFamily: "PublicSans_600SemiBold", color: "#000b25", marginBottom: 8 },
-  modalMsg:      { fontSize: 14, fontFamily: "PublicSans_400Regular", color: "#44474e", textAlign: "center", marginBottom: 24, lineHeight: 20 },
-  modalBtn:      { backgroundColor: "#000b25", paddingVertical: 13, paddingHorizontal: 28, borderRadius: 12 },
-  modalBtnText:  { fontSize: 17, fontFamily: "PublicSans_600SemiBold", color: "#ffffff" },
+  safe:         { flex: 1, backgroundColor: C.bg },
+  scroll:       { flex: 1 },
+  scrollContent:{ paddingHorizontal: 16, paddingBottom: 16 },
+
+  topBar: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    height: 56, paddingHorizontal: 12,
+    backgroundColor: C.container,
+    borderBottomWidth: 1, borderBottomColor: C.border,
+  },
+  backBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: C.surface, alignItems: "center", justifyContent: "center",
+  },
+  topBarTitle: { fontSize: 16, fontFamily: "PublicSans_700Bold", color: C.primary },
+
+  hero: {
+    flexDirection: "row", alignItems: "center", gap: 14,
+    backgroundColor: C.tealLight, borderRadius: 14,
+    padding: 16, marginTop: 16, marginBottom: 16,
+    borderWidth: 1, borderColor: C.teal + "33",
+  },
+  heroIcon: {
+    width: 50, height: 50, borderRadius: 25,
+    backgroundColor: C.tealBg, alignItems: "center", justifyContent: "center",
+    flexShrink: 0,
+  },
+  heroTitle: { fontSize: 16, fontFamily: "PublicSans_700Bold", color: C.tealDark },
+  heroSub:   { fontSize: 12, fontFamily: "PublicSans_400Regular", color: C.tealDark, lineHeight: 17 },
+
+  errorBox: {
+    flexDirection: "row", alignItems: "flex-start", gap: 8,
+    backgroundColor: C.errorBg, borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10, marginBottom: 12,
+  },
+  errorText: { flex: 1, fontSize: 13, fontFamily: "PublicSans_400Regular", color: C.error, lineHeight: 18 },
+
+  section: {
+    backgroundColor: C.surface, borderRadius: 16,
+    padding: 16, marginBottom: 14, gap: 14,
+    borderWidth: 1, borderColor: C.borderSoft,
+  },
+  sectionTitle: {
+    fontSize: 11, fontFamily: "PublicSans_700Bold", color: C.teal,
+    textTransform: "uppercase", letterSpacing: 1,
+  },
+
+  field:    { gap: 5 },
+  label:    { fontSize: 11, fontFamily: "PublicSans_600SemiBold", letterSpacing: 0.7, color: C.mid, textTransform: "uppercase", marginLeft: 2 },
+  optional: { fontFamily: "PublicSans_400Regular", letterSpacing: 0, textTransform: "none", color: C.muted },
+  hint:     { fontSize: 11, fontFamily: "PublicSans_400Regular", color: C.muted, lineHeight: 16, marginLeft: 2 },
+
+  inputWrap: {
+    flexDirection: "row", alignItems: "center",
+    backgroundColor: C.containerLow, borderWidth: 1,
+    borderColor: C.border, borderRadius: 12, height: 48,
+  },
+  inputIcon: { marginLeft: 12, marginRight: 4 },
+  input: {
+    flex: 1, fontSize: 14, fontFamily: "PublicSans_400Regular",
+    color: C.primary, paddingVertical: 12, paddingHorizontal: 8,
+  },
+  eyeBtn: { position: "absolute", right: 12 },
+
+  typeGrid:         { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  typeChip:         { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.surface },
+  typeChipActive:   { borderColor: C.teal, backgroundColor: C.tealBg },
+  typeChipText:     { fontSize: 12, fontFamily: "PublicSans_600SemiBold", color: C.muted },
+  typeChipTextActive:{ color: C.tealDark },
+
+  toggleRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 4 },
+  toggleLabel:{ fontSize: 13, fontFamily: "PublicSans_600SemiBold", color: C.mid },
+
+  termsRow: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 16 },
+  checkbox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: C.border, justifyContent: "center", alignItems: "center", marginTop: 1, flexShrink: 0 },
+  checkboxOn:{ backgroundColor: C.primary, borderColor: C.primary },
+  termsText: { flex: 1, fontSize: 13, fontFamily: "PublicSans_400Regular", color: C.mid, lineHeight: 19 },
+  termsLink: { fontFamily: "PublicSans_600SemiBold", color: C.secondary },
+
+  submitBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: C.primary, borderRadius: 14,
+    paddingVertical: 16, marginBottom: 16,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.12, shadowRadius: 5, elevation: 3,
+  },
+  submitBtnDisabled:{ opacity: 0.6 },
+  submitBtnText: { fontSize: 16, fontFamily: "PublicSans_700Bold", color: "#fff" },
+
+  loginRow:  { flexDirection: "row", justifyContent: "center", marginBottom: 24 },
+  loginText: { fontSize: 13, fontFamily: "PublicSans_400Regular", color: C.mid },
+  loginLink: { fontSize: 13, fontFamily: "PublicSans_700Bold", color: C.primary },
+
+  trust:      { flexDirection: "row", justifyContent: "center", gap: 20, opacity: 0.4, marginBottom: 8 },
+  trustItem:  { flexDirection: "row", alignItems: "center", gap: 5 },
+  trustLabel: { fontSize: 9, fontFamily: "PublicSans_600SemiBold", color: C.muted, letterSpacing: 0.8 },
 });

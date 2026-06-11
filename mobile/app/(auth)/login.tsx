@@ -1,10 +1,10 @@
-// mobile/app/(auth)/login.tsx
 import { useState } from "react";
 import {
   View, Text, TextInput, Pressable,
   StyleSheet, ActivityIndicator, Alert, ScrollView,
   TouchableOpacity, ImageBackground,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { useAuthStore } from "@/store/auth";
 import { api } from "@/lib/api";
@@ -45,22 +45,35 @@ export default function LoginScreen() {
         style={s.hero}
         imageStyle={{ opacity: 0.35 }}
       >
-        <View style={s.heroOverlay}>
-          <View style={s.heroBrand}>
-            <MaterialIcons name="security" size={26} color="#ffffff" />
-            <Text style={s.heroBrandText}>CompliancePro Botswana</Text>
+        <SafeAreaView edges={["top"]} style={{ flex: 1 }}>
+          <View style={s.heroOverlay}>
+            {/* Back to landing */}
+            <TouchableOpacity
+              style={s.backBtn}
+              onPress={() => router.replace("/")}
+              accessibilityRole="button"
+              accessibilityLabel="Back to home"
+              hitSlop={12}
+            >
+              <MaterialIcons name="arrow-back" size={20} color="#ffffff" />
+            </TouchableOpacity>
+
+            <View style={s.heroBrand}>
+              <MaterialIcons name="security" size={26} color="#ffffff" />
+              <Text style={s.heroBrandText}>CompliancePro Botswana</Text>
+            </View>
+            <View>
+              <Text style={s.heroHeadline}>Secure Access</Text>
+              <Text style={s.heroSub}>
+                Enter your credentials to manage your business compliance standing with CIPA and BURS.
+              </Text>
+            </View>
+            <View style={s.encBadge}>
+              <MaterialIcons name="verified-user" size={14} color="#acf4a4" />
+              <Text style={s.encText}>End-to-End Encrypted</Text>
+            </View>
           </View>
-          <View>
-            <Text style={s.heroHeadline}>Secure Access</Text>
-            <Text style={s.heroSub}>
-              Enter your credentials to manage your business compliance standing with CIPA and BURS.
-            </Text>
-          </View>
-          <View style={s.encBadge}>
-            <MaterialIcons name="verified-user" size={14} color="#acf4a4" />
-            <Text style={s.encText}>End-to-End Encrypted</Text>
-          </View>
-        </View>
+        </SafeAreaView>
       </ImageBackground>
 
       {/* Form panel */}
@@ -134,7 +147,8 @@ const s = StyleSheet.create({
   loading:       { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#f3faff" },
   root:          { flex: 1, backgroundColor: "#ffffff" },
   hero:          { width: "100%", height: 230, backgroundColor: "#000b25" },
-  heroOverlay:   { flex: 1, backgroundColor: "rgba(0,11,37,0.75)", paddingHorizontal: 20, paddingTop: 52, paddingBottom: 18, justifyContent: "space-between" },
+  heroOverlay:   { flex: 1, backgroundColor: "rgba(0,11,37,0.75)", paddingHorizontal: 20, paddingTop: 8, paddingBottom: 18, justifyContent: "space-between" },
+  backBtn:       { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center", alignSelf: "flex-start" },
   heroBrand:     { flexDirection: "row", alignItems: "center", gap: 10 },
   heroBrandText: { fontSize: 17, fontFamily: "PublicSans_700Bold", color: "#ffffff" },
   heroHeadline:  { fontSize: 30, fontFamily: "PublicSans_700Bold", color: "#ffffff", letterSpacing: -0.6, marginBottom: 6 },
