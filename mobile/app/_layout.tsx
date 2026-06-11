@@ -11,12 +11,17 @@ import {
 } from "@expo-google-fonts/public-sans";
 import { useNetworkFlusher } from "@/store/offlineQueue";
 import { useNotificationSetup } from "@/hooks/useNotifications";
+import { setAuthQueryClient } from "@/store/auth";
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { staleTime: 1000 * 60 * 5, retry: 2 },
   },
 });
+
+// Register with the auth store immediately so logout can clear the cache
+// even before any React component mounts.
+setAuthQueryClient(queryClient);
 
 function AppServices() {
   useNetworkFlusher();

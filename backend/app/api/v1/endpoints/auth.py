@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.deps import get_current_user
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -19,6 +20,7 @@ from app.schemas.auth import (
     RegisterRequest,
     RegisterWithProfileRequest,
     TokenResponse,
+    UserResponse,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -165,3 +167,13 @@ def refresh_token(body: RefreshRequest):
 @router.delete("/session", status_code=status.HTTP_204_NO_CONTENT)
 def logout():
     return
+
+
+# ── GET /auth/me ──────────────────────────────────────────────────────────────
+@router.get("/me", response_model=UserResponse)
+def get_me(current_user: User = Depends(get_current_user)):
+    """
+    Return the currently authenticated user's profile.
+    Used by the frontend for role-based UI (e.g. accountant client switcher).
+    """
+    return current_user

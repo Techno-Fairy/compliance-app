@@ -408,12 +408,6 @@ function DeadlineCard({ item, onMarkComplete }: { item: Deadline; onMarkComplete
         {!isComplete && (
           <View style={ss.cardActions}>
             <Pressable
-              style={({ pressed }) => [ss.btnPrimary, pressed && { opacity: 0.75 }]}
-              onPress={() => onMarkComplete(item.id)}
-            >
-              <Text style={ss.btnPrimaryText}>File Now</Text>
-            </Pressable>
-            <Pressable
               style={({ pressed }) => [ss.btnOutline, pressed && { opacity: 0.75 }]}
               onPress={() => router.push(`/deadline/${item.id}` as any)}
             >

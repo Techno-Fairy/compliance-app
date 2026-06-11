@@ -2,6 +2,16 @@
 from pydantic import BaseModel, EmailStr, Field
 
 
+class UserResponse(BaseModel):
+    """Returned by GET /auth/me."""
+    id: int
+    full_name: str
+    email: str
+    role: str
+
+    model_config = {"from_attributes": True}
+
+
 class RegisterRequest(BaseModel):
     full_name: str = Field(min_length=2, max_length=255)
     email: EmailStr

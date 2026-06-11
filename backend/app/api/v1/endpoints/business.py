@@ -53,7 +53,11 @@ def create_profile(
             },
         )
 
-    profile = BusinessProfile(**body.model_dump(), owner_id=current_user.id)
+    profile = BusinessProfile(
+        **body.model_dump(),
+        owner_id=current_user.id,
+        is_onboarding_complete=True,  # Established-business path: guide not required
+    )
     db.add(profile)
     db.commit()
     db.refresh(profile)
