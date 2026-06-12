@@ -26,6 +26,8 @@ from app.models import (  # noqa: F401 — imports trigger SQLAlchemy model regi
     document,
     history,
     knowledge,
+    onboarding,
+    team,
     user,
 )
 
