@@ -101,11 +101,30 @@ export default function LandingScreen() {
           </View>
           <MaterialIcons name="chevron-right" size={22} color={C.muted} />
         </Pressable>
+
+        {/* Path C: Invited accountant */}
+        <Pressable
+          style={({ pressed }) => [s.card, s.cardInvited, pressed && { opacity: 0.88 }]}
+          onPress={() => router.push("/(auth)/register-invited" as any)}
+          accessibilityRole="button"
+          accessibilityLabel="Accept a team invitation"
+        >
+          <View style={[s.cardIcon, s.cardIconAmber]}>
+            <MaterialIcons name="mail" size={26} color="#7D5A1E" />
+          </View>
+          <View style={s.cardText}>
+            <Text style={[s.cardTitle, { color: "#7D5A1E" }]}>I received an invitation</Text>
+            <Text style={s.cardDesc}>
+              Accept a team invite and access a client's compliance dashboard.
+            </Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={22} color={C.muted} />
+        </Pressable>
       </View>
 
       {/* ── Footer note ── */}
       <Text style={s.footer}>
-        No account required to start the guide.
+        No business registration required to accept an invite.
       </Text>
     </SafeAreaView>
   );
@@ -158,6 +177,8 @@ const s = StyleSheet.create({
   },
   cardPrimary:   { borderLeftWidth: 4, borderLeftColor: C.teal },
   cardSecondary: { borderLeftWidth: 4, borderLeftColor: C.secondary },
+  cardInvited:   { borderLeftWidth: 4, borderLeftColor: "#D4830A" },
+  cardIconAmber: { backgroundColor: "#FEF3E2" },
 
   cardIcon: {
     width: 46,

@@ -11,7 +11,9 @@ import {
 } from "@expo-google-fonts/public-sans";
 import { useNetworkFlusher } from "@/store/offlineQueue";
 import { useNotificationSetup } from "@/hooks/useNotifications";
-import { setAuthQueryClient } from "@/store/auth";
+import { useEffect } from "react";
+import * as Linking from "expo-linking";
+import { router } from "expo-router";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,13 +21,59 @@ const queryClient = new QueryClient({
   },
 });
 
-// Register with the auth store immediately so logout can clear the cache
-// even before any React component mounts.
-setAuthQueryClient(queryClient);
-
 function AppServices() {
   useNetworkFlusher();
   useNotificationSetup();
+
+  // ── Deep link handler ──────────────────────────────────────────────────
+  // Handles compliancepro://team/accept/{token}
+  // and https://compliancepro.co.bw/team/accept?token={token}
+  useEffect(() => {
+    function handleUrl({ url }: { url: string }) {
+      try {
+        const parsed = Linking.parse(url);
+
+        // Custom scheme:  compliancepro://team/accept/TOKEN
+        if (parsed.scheme === "compliancepro") {
+          const pathParts = (parsed.path ?? "").split("/").filter(Boolean);
+          if (pathParts[0] === "team" && pathParts[1] === "accept" && pathParts[2]) {
+            router.push({
+              pathname: "/(auth)/register-invited" as any,
+              params: { token: pathParts[2] },
+            });
+            return;
+          }
+        }
+
+        // Universal / HTTPS link: https://compliancepro.co.bw/team/accept?token=TOKEN
+        if (parsed.hostname === "compliancepro.co.bw") {
+          const pathParts = (parsed.path ?? "").split("/").filter(Boolean);
+          if (pathParts[0] === "team" && pathParts[1] === "accept") {
+            const token = parsed.queryParams?.token as string | undefined;
+            if (token) {
+              router.push({
+                pathname: "/(auth)/register-invited" as any,
+                params: { token },
+              });
+            }
+          }
+        }
+      } catch {
+        // Malformed URL — ignore
+      }
+    }
+
+    // Handle link when app is already open
+    const sub = Linking.addEventListener("url", handleUrl);
+
+    // Handle link that cold-started the app
+    Linking.getInitialURL().then((url) => {
+      if (url) handleUrl({ url });
+    });
+
+    return () => sub.remove();
+  }, []);
+
   return null;
 }
 
@@ -52,8 +100,11 @@ export default function RootLayout() {
           {/* ── Root landing — replaces the old redirect-only index ── */}
           <Stack.Screen name="index" />
 
-          {/* ── Auth (existing, unchanged) ── */}
+          {/* ── Auth ── */}
           <Stack.Screen name="(auth)" />
+          {/* Invite accept flows — outside (auth) group so token param passes cleanly */}
+          <Stack.Screen name="(auth)/register-invited" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="(auth)/login-invited" options={{ animation: "slide_from_right" }} />
 
           {/* ── Authenticated area (existing, unchanged) ── */}
           <Stack.Screen name="(tabs)" />
