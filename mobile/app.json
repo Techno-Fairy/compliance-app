@@ -39,7 +39,10 @@
               "pathPrefix": "/team/accept"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         },
         {
           "action": "VIEW",
@@ -48,7 +51,10 @@
               "scheme": "compliancepro"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -69,8 +75,10 @@
     ],
     "extra": {
       "eas": {
-        "projectId": ""
-      }
-    }
+        "projectId": "6ca39cc4-1d82-46b7-8986-974eb0b82610"
+      },
+      "router": {}
+    },
+    "owner": "shawneuphony"
   }
 }

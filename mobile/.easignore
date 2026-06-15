@@ -1,0 +1,7 @@
+node_modules
+.expo
+*.log
+__tests__
+*.test.*
+*.spec.*
+.git
